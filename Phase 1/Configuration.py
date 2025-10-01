@@ -41,7 +41,7 @@ class Config:
     'fallback'
     """
 
-    _SUPPORTED_SUFFIXES: Mapping[str, str] = {".sjon": "sjon", ".yml": "yaml", ".yaml": "yaml"}
+    _SUPPORTED_SUFFIXES: Mapping[str, str] = {".json": "json", ".yml": "yaml", ".yaml": "yaml"}
 
     def __init__(self, data: Optional[Mapping[str, Any]] = None) -> None:
         self._data: Dict[str, Any] = dict(data or {})
@@ -82,7 +82,9 @@ class Config:
         format_name = cls._SUPPORTED_SUFFIXES.get(suffix)
         if format_name is None:
             supported = ", ".join(sorted(cls._SUPPORTED_SUFFIXES))
-            raise ValueError(f"Unsopported configuration file format '{suffix}'. Expected one of: {supported}")
+            raise ValueError(
+                f"Unsupported configuration file format '{suffix}'. Expected one of: {supported}"
+            )
 
         if format_name == "json":
             with path.open("r", encoding="utf-8") as fh:
