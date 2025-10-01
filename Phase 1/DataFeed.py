@@ -48,7 +48,7 @@ class DataFeed(ABC):
         """Subscribe to OHLCV updates for *symbol* at the desired *timeframe*."""
 
     @abstractmethod
-    def fetch_ohlcv(self, symbol: str, timeframe: str, limit: int = 500): -> Iterable[CandleEvent]:
+    def fetch_ohlcv(self, symbol: str, timeframe: str, limit: int = 500) -> Iterable[CandleEvent]:\
         """Fetch historical candles for *symbol* and *timeframe*."""
 
     @abstractmethod
