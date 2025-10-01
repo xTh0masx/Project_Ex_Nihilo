@@ -1,7 +1,7 @@
 """Configuration management utilities for the trading research prototype.
 
-This module provides the :class: 'Config' class which centralises how runtime
-how runtime options are loaded and accessed across the system. According to the
+This module provides the :class: 'Config' class which centralises how
+runtime options are loaded and accessed across the system. According to the
 ''README.md'' architecture overview, configuration data is a core dependency
 that multiple layers-data acquisition, strategy logic, storage and logging-need
 to agree on. Keeping the implementation in one place makes it easier fo the
@@ -27,7 +27,7 @@ class Config:
 
     * :methode: 'load' reads JSON or YAML files from disk and returns a ready-to-use
     :class: 'Config' instance.
-    * :methode: 'get' supports dotted keys (''"database.host"'') to access nested
+    * :methode: 'get' supports dotted keys ('' "database.host" '') to access nested
     structures with an optional default value when a key is missing.
     * :methode: 'as_dict' exposes a deep copy of the underlying mapping when raw
     access is required by downstream components.
@@ -107,7 +107,7 @@ class Config:
         """Return the configuration value for *key*.
 
         The method accepts dotted keys to traverse nested dictionaries.
-        When a key cannot be resolven the *default* is returned instead of raising an error.
+        When a key cannot be resolved the *default* is returned instead of raising an error.
         This behaviour allows optional settings throughout the system to read configuration values safely.
         """
 
@@ -127,7 +127,7 @@ class Config:
         """ Return the copy of the underlying dictionary.
 
         Mutating the returned mapping does not affect the :class: 'Config' instance,
-        keeping configuration reads side-effect free.
+        keeping configuration reads side effect free.
         """
 
         return json.loads(json.dumps(self._data))

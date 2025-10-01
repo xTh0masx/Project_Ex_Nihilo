@@ -83,36 +83,36 @@ class BinanceDataFeed(DataFeed):
 
 
 
-    class BybitDataFeed(DataFeed):
-        """Placeholder for a Bybit implementation."""
+class BybitDataFeed(DataFeed):
+    """Placeholder for a Bybit implementation."""
 
-        def subscribe_ticker(self, symbol: str) -> None:  # pragma: no cover - placeholder
-            raise NotImplementedError
+    def subscribe_ticker(self, symbol: str) -> None:  # pragma: no cover - placeholder
+        raise NotImplementedError
 
-        def subscribe_ohlcv(self, symbol: str, timeframe: str) -> None:  # pragma: no cover - placeholder
-            raise NotImplementedError
+    def subscribe_ohlcv(self, symbol: str, timeframe: str) -> None:  # pragma: no cover - placeholder
+        raise NotImplementedError
 
-        def fetch_ohlcv(self, symbol: str, timeframe: str, limit: int = 500) -> Iterable[
-            CandleEvent]:  # pragma: no cover
-            raise NotImplementedError
+    def fetch_ohlcv(self, symbol: str, timeframe: str, limit: int = 500) -> Iterable[
+        CandleEvent]:  # pragma: no cover
+        raise NotImplementedError
 
-        def close(self) -> None:  # pragma: no cover - placeholder
-            raise NotImplementedError
+    def close(self) -> None:  # pragma: no cover - placeholder
+        raise NotImplementedError
 
 
 
-    class YahooDataFeed(DataFeed):
-        """Placeholder for a Yahoo Finance implementation."""
+class YahooDataFeed(DataFeed):
+    """Placeholder for a Yahoo Finance implementation."""
 
-        def subscribe_ticker(self, symbol: str) -> None:  # pragma: no cover - placeholder
-            raise NotImplementedError
+    def subscribe_ticker(self, symbol: str) -> None:  # pragma: no cover - placeholder
+        raise NotImplementedError
 
-        def subscribe_ohlcv(self, symbol: str, timeframe: str) -> None:  # pragma: no cover - placeholder
-            raise NotImplementedError
+    def subscribe_ohlcv(self, symbol: str, timeframe: str) -> None:  # pragma: no cover - placeholder
+        raise NotImplementedError
 
-        def fetch_ohlcv(self, symbol: str, timeframe: str, limit: int = 500) -> Iterable[
-            CandleEvent]:  # pragma: no cover
-            raise NotImplementedError
+    def fetch_ohlcv(self, symbol: str, timeframe: str, limit: int = 500) -> Iterable[
+        CandleEvent]:  # pragma: no cover
+        raise NotImplementedError
 
-        def close(self) -> None:  # pragma: no cover - placeholder
-            raise NotImplementedError
+    def close(self) -> None:  # pragma: no cover - placeholder
+        raise NotImplementedError
