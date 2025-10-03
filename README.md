@@ -14,6 +14,44 @@ Website to gather information:
 - trading view
 - 
 
+## Configuration
+
+### Phase 1 ingestion service
+
+1. Copy the example configuration so you can customise it locally:
+
+   ```bash
+   cp "Phase 1/settings.example.yml" "Phase 1/settings.yml"
+   cp "Phase 1/.env.example" "Phase 1/.env"
+   ```
+
+2. Fill in the required secrets either by editing `Phase 1/settings.yml` directly or by
+   exporting the corresponding environment variables before launching the ingestion
+   service. The configuration references the following variables:
+
+   - `BINANCE_API_KEY`
+   - `BINANCE_API_SECRET`
+   - `BINANCE_BASE_URL` (optional – defaults to the public API)
+   - `MYSQL_HOST`
+   - `MYSQL_PORT`
+   - `MYSQL_USER`
+   - `MYSQL_PASSWORD`
+   - `MYSQL_DATABASE`
+
+   Example of exporting them in your shell:
+
+   ```bash
+   export BINANCE_API_KEY=your-key
+   export BINANCE_API_SECRET=your-secret
+   export MYSQL_USER=project_user
+   export MYSQL_PASSWORD=strong-password
+   export MYSQL_DATABASE=project_ex_nihilo
+   ```
+
+   Any variables left unset will fall back to the defaults defined in
+   `Phase 1/settings.yml` if one is provided.
+
+
 ## Work process
 
 ### 1. Structural Plan - Data, Method

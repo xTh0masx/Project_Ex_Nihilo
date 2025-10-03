@@ -12,6 +12,9 @@ or storage paths.
 from __future__ import annotations
 
 import json
+import os
+import re
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterable, Mapping, MutableMapping, Optional
 
@@ -145,3 +148,87 @@ class Config:
     # ------------------------------------------------------------------------------------------------
     def __repr__(self) -> str: # pragma: no cover - trivial
         return f"Config({self._data!r})"
+
+# ----------------------------------------------------------------------------------------------------
+_ENV_PATTERN = re.compile(r"\$\{([A-Z0-9_]+)(?::([^}]*))?\}")
+
+def _resolve_env_placeholders(value: Any) -> Any:
+    """Recursively resolve ${VAR} placeholders using environment variable."""
+
+    if isinstance(value, Mapping):
+        return {key: _resolve_env_placeholders(val) for key, val in value.items()}
+    if isinstance(value, list):
+        return [_resolve_env_placeholders(item) for item in value]
+    if isinstance(value, str):
+
+        def _replace(match: re.Match[str]) -> str:
+            var_name = match.group(1)
+            default = match.group(2)
+            if var_name in os.environ:
+                return os.environ[var_name]
+            if default is not None:
+                return default
+            raise KeyError (
+                f"Environment variable '{var_name}' required by configuration but not set."
+            )
+        return _ENV_PATTERN.sub(_replace, value)
+    return value
+
+@dataclass(frozen=True)
+class BinanceSettings:
+    api_key: str
+    api_secret: str
+    base_url: str
+
+@dataclass(frozen=True)
+class MySqlSettings:
+    host: str
+    port: int
+    user: str
+    password: str
+    database: str
+
+@dataclass(frozen=True)
+class Settings:
+    """Container bundling parsed configuration sections."""
+
+    config: Config
+    binance: BinanceSettings
+    mysql: MySqlSettings
+
+def load_settings(path: str) -> Settings:
+    """"Load configuration from *path* and return typed settings sections."""
+
+    config = Config.load(path)
+    resolved_data = _resolve_env_placeholders(config.as_dict())
+    resolved_config = Config(resolved_data)
+
+    binance_raw = resolved_config.get("exchange.binance")
+    if not isinstance(binance_raw, Mapping):
+        raise ValueError("Configuration is missing the 'exchange.binance' section.")
+
+    mysql_raw = resolved_config.get("database.mysql")
+    if not isinstance(mysql_raw, Mapping):
+        raise ValueError("Configuration is missing the 'database.mysql' section.")
+
+    try:
+        binance = BinanceSettings(
+            api_key=str(binance_raw["api_key"]),
+            api_secret=str(binance_raw["api_secret"]),
+            base_url=str(binance_raw["base_url"]),
+        )
+    except KeyError as exc: # pragma: no cover - defensive
+        raise ValueError("Incomplete Binance configuration.") from exc
+
+    try:
+        mysql = MySqlSettings(
+            host=str(mysql_raw["host"]),
+            port=int(mysql_raw["port"]),
+            user=str(mysql_raw["user"]),
+            password=str(mysql_raw["password"]),
+            database=str(mysql_raw["database"]),
+        )
+    except KeyError as exc: # pragma: no cover -defensive
+        raise ValueError("Incomplete MySQL configuration.") from exc
+
+    return Settings(config=resolved_config, binance=binance, mysql=mysql)
