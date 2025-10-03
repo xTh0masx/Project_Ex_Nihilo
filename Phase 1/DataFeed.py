@@ -14,13 +14,17 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Callable, Iterable, Optional
 
+from Logger import Logger, get_logger
+
 _BINANCE_SPEC = importlib.util.find_spec("binance")
 
 if _BINANCE_SPEC is not None: # pragma: no cover - optional dependency
     from binance.client import Client
+    from binance.error import BinanceAPIException
     from binance.streams import ThreadedWebsocketManager
 else: # pragma: no cover - executed when dependency is missing
     Client = ThreadedWebsocketManager = None # type: ignore
+    BinanceAPIException = Exception # type: ignore[assignment]
 
 @dataclass(slots=True)
 class TickerEvent:
@@ -95,24 +99,30 @@ class BinanceDataFeed(DataFeed):
             api_secret: Optional[str] = None,
             base_url: Optional[str] = None,
             enable_websockets: bool = True,
+            logger: Logger = get_logger(),
     ) -> None:
         if Client is None: # pragma: no cover - dependency guard
             raise RuntimeError(
                 "python-binance is required for BinanceDataFeed. Install it via 'pip install python-binance'."
             )
 
-        self.rest_client = Client(
+        self._logger = logger
+
+        self._rest_client = Client(
             api_key=api_key,
             api_secret=api_secret,
             requests_params={"timeout": 10},
             base_url=base_url,
+        )
+        self._logger.info(
+            "Initialised Binance REST client",
+            extra={"base_url": base_url or "https://api.binance.com"},
         )
         self._ws_manager: Optional[ThreadedWebsocketManager] = None
         self._ws_running = False
 
         if enable_websockets:
             if ThreadedWebsocketManager is None: # pragma: no cover - dependency guard
-
                 raise RuntimeError(
                     "python-binance is required for BinanceDataFeed. "
                 )
@@ -124,6 +134,10 @@ class BinanceDataFeed(DataFeed):
             )
             self._ws_manager.start()
             self._ws_running = True
+            self._logger.info(
+                "Started Binance WebSocket manager",
+                extra={"websocket_enabled": True, "testnet": base_url is not None},
+            )
 
     # -----------------------------------------------------------------------
     def _ensure_websocket(self) -> ThreadedWebsocketManager:
@@ -131,7 +145,7 @@ class BinanceDataFeed(DataFeed):
             raise RuntimeError("Websocket support is disabled for this BinanceDataFeed instance.")
         return self._ws_manager
 
-    def _stream_symbol(self, symbol: str) ->str:
+    def _stream_symbol(self, symbol: str) -> str:
         return symbol.lower()
 
     def _handle_trade(self, symbol: str) -> Callable[[dict], None]:
@@ -146,7 +160,14 @@ class BinanceDataFeed(DataFeed):
                 price=price,
                 volume=volume,
             )
-            self.on_ticker(event)
+            try:
+                self.on_ticker(event)
+            except Exception as exc: # pragma: no cover - defensive logging
+                self._logger.error(
+                    "Ticker callback raised an exception",
+                    exc=exc,
+                    extra={"symbol": uppercase},
+                )
         return _callback
 
     def _handle_kline(self, symbol: str) -> Callable[[dict], None]:
@@ -163,7 +184,14 @@ class BinanceDataFeed(DataFeed):
                 c=float(payload["c"]),
                 v=float(payload["v"]),
             )
-            self.on_ohlcv(event)
+            try:
+                self.on_ohlcv(event)
+            except Exception as exc: # pragma: no cover - defensive logging
+                self._logger.error(
+                    "OHLCV callback raised an exception",
+                    exc=exc,
+                    extra={"symbol": uppercase},
+                )
 
         return _callback
 
@@ -185,15 +213,36 @@ class BinanceDataFeed(DataFeed):
 
     # -------------------------------------------------------------------------------
     def fetch_ohlcv(self, symbol: str, timeframe: str, limit: int = 500) -> Iterable[CandleEvent]:
-        candles = self._rest_client.get_klines(
-            symbol=symbol.upper(),
-            interval=timeframe,
-            limit=limit,
-        )
+        uppercase = symbol.upper()
+        try:
+            candles = self._rest_client.get_klines(
+                symbol=symbol.upper(),
+                interval=timeframe,
+                limit=limit,
+            )
+        except BinanceAPIException as exc: # pragma: no cover - depends on external API
+            self._logger.warn(
+                "Revocerable Binance API error while fetching klines",
+                extra={
+                    "symbol": uppercase,
+                    "timeframe": timeframe,
+                    "limit": limit,
+                    "status_code": getattr(exc, "status_code", None),
+                    "error_code": getattr(exc, "code", None),
+                },
+            )
+            raise
+        if not candles:
+            self._logger.warn(
+                "Binance API returned no candles",
+                extra={"symbol": uppercase, "timeframe": timeframe, "limit": limit},
+            )
+            return []
+
         for open_time, o, h, l, c, v, *_ in candles:
             yield CandleEvent(
                 ts=int(open_time),
-                symbol=symbol.upper(),
+                symbol=uppercase,
                 o=float(o),
                 h=float(h),
                 l=float(l),
@@ -205,7 +254,7 @@ class BinanceDataFeed(DataFeed):
         if self._ws_manager is not None and self._ws_running:
             self._ws_manager.stop()
             self._ws_running = False
-        self.rest_client.close_connection()
+        self._rest_client.close_connection()
 
 
 
