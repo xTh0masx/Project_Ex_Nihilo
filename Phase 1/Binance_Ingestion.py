@@ -164,6 +164,8 @@ def _coerce_start(start: str) -> int:
             value = int(text)
         else:
             try:
+                if text.endswith("Z"):
+                    text = f"{text[:-1]}+00:00"
                 dt = datetime.fromisoformat(text)
             except ValueError as exc:
                 raise ValueError(f"Unable to parse start time '{start}'.") from exc

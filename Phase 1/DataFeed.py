@@ -202,6 +202,10 @@ class BinanceDataFeed(DataFeed):
                 extra={"websocket_enabled": True, "testnet": base_url is not None},
             )
 
+    @property
+    def rest_client(self) -> Client:
+        return self._rest_client
+
     # -----------------------------------------------------------------------
     def _ensure_websocket(self) -> ThreadedWebsocketManager:
         if self._ws_manager is None or not self._ws_running:
