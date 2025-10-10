@@ -237,12 +237,9 @@ def sync_historical(
 
         storage.save_ohlcv(symbol, interval, candles)
         logger.info(
-            "Stored %s candles for %s (%s) covering %s -> %s",
-            len(candles),
-            symbol,
-            interval,
-            datetime.fromtimestamp(candles[0].ts / 1000, tz=timezone.utc).isoformat(),
-            datetime.fromtimestamp(candles[-1].ts / 1000, tz=timezone.utc).isoformat(),
+            f"Stored {len(candles)} candles for {symbol} ({interval}) covering "
+            f"{datetime.fromtimestamp(candles[0].ts / 1000, tz=timezone.utc).isoformat()} -> "
+            f"{datetime.fromtimestamp(candles[-1].ts / 1000, tz=timezone.utc).isoformat()}"
         )
 
         current_start = candles[-1].ts + timeframe_ms
@@ -258,10 +255,8 @@ def _attach_live_ingestion(
     def _on_candle(event: CandleEvent) -> None:
         storage.save_ohlcv(symbol, interval, [event])
         logger.info(
-            "Saved live candle for %s (%s) at %s",
-            event.symbol,
-            interval,
-            datetime.fromtimestamp(event.ts / 1000, tz=timezone.utc).isoformat(),
+            f"Saved live candle for {event.symbol} ({interval}) at "
+            f"{datetime.fromtimestamp(event.ts / 1000, tz=timezone.utc).isoformat()}"
         )
 
     feed.on_ohlcv = _on_candle  # type: ignore[assignment]
