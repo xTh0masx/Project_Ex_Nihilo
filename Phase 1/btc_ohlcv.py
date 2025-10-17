@@ -1,4 +1,4 @@
 import yfinance as yf
 btcusd  = yf.Ticker("BTC-USD")
-data = btcusd.history(period="max")
+data = btcusd.history(interval="1m", period="max")
 print(data.to_string())
