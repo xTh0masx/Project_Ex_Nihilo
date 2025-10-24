@@ -10,7 +10,7 @@ try:
         port=3306,
         user="root",
         password="Digimon@4123",
-        database="yahoo_finance_extraction"
+        database="ex_nihilo"
     )
 
     if connection.is_connected():
@@ -19,7 +19,7 @@ try:
     cursor = connection.cursor()
     cursor.execute(
         """
-        CREATE TABLE IF NOT EXISTS EX_NIHILO (
+        CREATE TABLE IF NOT EXISTS yahoo_finance_data (
             quote_date DATE PRIMARY KEY,
             open DECIMAL (18,8),
             high DECIMAL (18,8),
@@ -34,7 +34,7 @@ try:
     data = btcusd.history(period="max", interval="1d")
 
     insert_stm = """
-        INSERT INTO EX_NIHILO (quote_date, open, high, low, close, volume)
+        INSERT INTO yahoo_finance_data (quote_date, open, high, low, close, volume)
         VALUES (%s, %s, %s, %s, %s, %s)
         ON DUPLICATE KEY UPDATE
             open=VALUES(open),
