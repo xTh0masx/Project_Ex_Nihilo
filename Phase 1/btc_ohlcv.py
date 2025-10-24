@@ -9,12 +9,12 @@ cursor = None
 
 try:
     connection = mysql.connector.connect(
-        host="127.0.0.1",
+        host='127.0.0.1',
         port=3306,
-        user="root",
-        password="Digimon@4123",
-        database="ex_nihilo",
-        auth_plugin="mysql_native_password",
+        user='root',
+        password='Digimon@4123',
+        database='ex_nihilo',
+        auth_plugin='mysql_native_password'
     )
 
     if connection.is_connected():
@@ -25,11 +25,11 @@ try:
         """
         CREATE TABLE IF NOT EXISTS yahoo_finance_data (
             quote_date DATE PRIMARY KEY,
-            open DECIMAL (18,8),
-            high DECIMAL (18,8),
-            low DECIMAL (18,8),
-            close DECIMAL (18,8),
-            volume BIGINT,
+            open DECIMAL (18, 8),
+            high DECIMAL (18, 8),
+            low DECIMAL (18, 8),
+            close DECIMAL (18, 8),
+            volume BIGINT
         )
         """
     )
