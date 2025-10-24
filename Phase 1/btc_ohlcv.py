@@ -1,14 +1,20 @@
 import yfinance as yf
 import mysql.connector
+from mysql.connector import Error
+
 
 # MySQL connection
+connection = None
+cursor = None
+
 try:
     connection = mysql.connector.connect(
         host="127.0.0.1",
         port=3306,
         user="root",
         password="Digimon@4123",
-        database="ex_nihilo"
+        database="ex_nihilo",
+        auth_plugin="mysql_native_password",
     )
 
     if connection.is_connected():
@@ -30,6 +36,8 @@ try:
 
     btcusd = yf.Ticker("BTC-USD")
     data = btcusd.history(period="max", interval="1d")
+
+    # print(data.to_string())
 
     insert_stm = """
         INSERT INTO yahoo_finance_data (quote_date, open, high, low, close, volume)
@@ -58,14 +66,11 @@ try:
     connection.commit()
     print(f"{cursor.rowcount} rows inserted.")
 
+except Error as error:
+    print(f"Failed to fetch/store BTC OHLCV data: \n{error}")
+
 finally:
     if cursor:
         cursor.close()
     if connection and connection.is_connected():
         connection.close()
-
-# Data Extraction from Yahoo Finance
-#btcusd  = yf.Ticker("BTC-USD")
-#data = btcusd.history(interval="1d", period="max")
-#print(data.to_string())
-
