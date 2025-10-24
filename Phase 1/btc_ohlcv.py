@@ -1,7 +1,5 @@
 import yfinance as yf
-import mysql
 import mysql.connector
-from mysql.connector import Error
 
 # MySQL connection
 try:
