@@ -40,6 +40,7 @@ class DatabaseConfig:
     database: str
     port: int = 3306
     table: str = ""
+    timestamp_column: str = "timestamp"
 
     def make_engine_url(self) -> str:
         """Build a SQLAlchemy-compatible connection URL."""
@@ -91,24 +92,29 @@ def load_ohlcv_data(cfg: DatabaseConfig, start: Optional[str], end: Optional[str
 
     where_clauses = []
     params = {}
+    timestamp_col = cfg.timestamp_column
+
     if start:
-        where_clauses.append("timestamp >= :start")
+        where_clauses.append(f"{timestamp_col} >= :start")
         params["start"] = start
     if end:
-        where_clauses.append("timestamp <= :end")
+        where_clauses.append(f"{timestamp_col} <= :end")
         params["end"] = end
 
     where_sql = " WHERE " + " AND ".join(where_clauses) if where_clauses else ""
-    query = f"SELECT * FROM {cfg.table}{where_sql} ORDER BY timestamp"
+    query = f"SELECT * FROM {cfg.table}{where_sql} ORDER BY {timestamp_col}"
     logging.info("Running query: %s", query)
 
     frame = pd.read_sql(query, engine, params=params)
 
-    if "timestamp" not in frame.columns:
-        raise ValueError("Expected a 'timestamp' column in the OHLCV table")
+    if timestamp_col not in frame.columns:
+        raise ValueError(
+            f"Expected a '{timestamp_col}' column in the OHLCV table; available columns: "
+            f"{sorted(frame.columns.tolist())}"
+        )
 
-    frame["timestamp"] = pd.to_datetime(frame["timestamp"], utc=True)
-    frame = frame.sort_values("timestamp").reset_index(drop=True)
+    frame[timestamp_col] = pd.to_datetime(frame[timestamp_col], utc=True)
+    frame = frame.sort_values(timestamp_col).reset_index(drop=True)
     frame.set_index("timestamp", inplace=True)
 
     expected_cols = {"open", "high", "low", "close", "volume"}
