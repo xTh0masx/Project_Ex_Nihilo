@@ -309,7 +309,7 @@ def resolve_table_name(frequency: str) -> Tuple[str, str]:
 
 
 # Select which table (by its frequency) you want the pipeline to use.
-SELECTED_FREQUENCY = "minute"  # change to "daily" or "hourly" or "minute" as needed
+SELECTED_FREQUENCY = "daily"  # change to "daily" or "hourly" or "minute" as needed
 SELECTED_TABLE, SELECTED_TIMESTAMP_COLUMN = resolve_table_name(SELECTED_FREQUENCY)
 
 
