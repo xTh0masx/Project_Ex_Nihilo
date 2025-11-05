@@ -290,7 +290,7 @@ def run_pipeline(db_cfg: DatabaseConfig, pipeline_cfg: PipelineConfig) -> None:
 # Map the available candle frequencies to the corresponding table names in MySQL.
 # Update the mapping if your schema uses different table names.
 TABLE_CONFIG_BY_FREQUENCY = {
-    "daily": ("yahoo_finance_data", "quote_data"),
+    "daily": ("yahoo_finance_data", "quote_date"),
     "minute": ("yahoo_finance_data_minute", "quote_datetime"),
     "hourly": ("yahoo_finance_data_hourly", "quote_datetime"),
 }
