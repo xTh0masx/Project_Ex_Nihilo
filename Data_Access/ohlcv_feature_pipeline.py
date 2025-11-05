@@ -115,6 +115,7 @@ def load_ohlcv_data(cfg: DatabaseConfig, start: Optional[str], end: Optional[str
 
     frame[timestamp_col] = pd.to_datetime(frame[timestamp_col], utc=True)
     frame = frame.sort_values(timestamp_col).reset_index(drop=True)
+    frame.rename(columns={timestamp_col: "timestamp"}, inplace=True)
     frame.set_index("timestamp", inplace=True)
 
     expected_cols = {"open", "high", "low", "close", "volume"}
@@ -288,20 +289,20 @@ def run_pipeline(db_cfg: DatabaseConfig, pipeline_cfg: PipelineConfig) -> None:
 
 # Map the available candle frequencies to the corresponding table names in MySQL.
 # Update the mapping if your schema uses different table names.
-TABLE_NAME_BY_FREQUENCY = {
-    "daily": "yahoo_finance_data",
-    "minute": "yahoo_finance_data_minute",
-    "hourly": "yahoo_finance_data_hourly",
+TABLE_CONFIG_BY_FREQUENCY = {
+    "daily": ("yahoo_finance_data", "quote_data"),
+    "minute": ("yahoo_finance_data_minute", "quote_datetime"),
+    "hourly": ("yahoo_finance_data_hourly", "quote_datetime"),
 }
 
 
-def resolve_table_name(frequency: str) -> str:
-    """Return the table name for the requested frequency or raise a helpful error."""
+def resolve_table_name(frequency: str) -> Tuple[str, str]:
+    """Return the table name and timestamp column for the requested frequency."""
 
     try:
-        return TABLE_NAME_BY_FREQUENCY[frequency]
+        return TABLE_CONFIG_BY_FREQUENCY[frequency]
     except KeyError as exc:  # pragma: no cover - defensive configuration guard
-        available = ", ".join(sorted(TABLE_NAME_BY_FREQUENCY))
+        available = ", ".join(sorted(TABLE_CONFIG_BY_FREQUENCY))
         raise ValueError(
             f"Unknown frequency '{frequency}'. Choose one of: {available}."
         ) from exc
@@ -309,6 +310,7 @@ def resolve_table_name(frequency: str) -> str:
 
 # Select which table (by its frequency) you want the pipeline to use.
 SELECTED_FREQUENCY = "minute"  # change to "daily" or "hourly" or "minute" as needed
+SELECTED_TABLE, SELECTED_TIMESTAMP_COLUMN = resolve_table_name(SELECTED_FREQUENCY)
 
 
 DATABASE_SETTINGS = DatabaseConfig(
@@ -317,7 +319,8 @@ DATABASE_SETTINGS = DatabaseConfig(
     user="root",
     password="Digimon@4123",
     database="ex_nihilo",
-    table=resolve_table_name(SELECTED_FREQUENCY),
+    table=SELECTED_TABLE,
+    timestamp_column=SELECTED_TIMESTAMP_COLUMN,
 )
 
 
