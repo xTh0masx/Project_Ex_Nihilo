@@ -19,6 +19,7 @@ import math
 import os
 from dataclasses import dataclass
 from typing import Optional, Tuple
+from urllib.parse import quote_plus
 
 import numpy as np
 import pandas as pd
@@ -43,8 +44,11 @@ class DatabaseConfig:
     def make_engine_url(self) -> str:
         """Build a SQLAlchemy-compatible connection URL."""
 
+        safe_user = quote_plus(self.user)
+        safe_password = quote_plus(self.password)
+
         return (
-            f"mysql+mysqlconnector://{self.user}:{self.password}"
+            f"mysql+mysqlconnector://{safe_user}:{safe_password}"
             f"@{self.host}:{self.port}/{self.database}"
         )
 
