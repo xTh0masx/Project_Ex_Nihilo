@@ -61,14 +61,14 @@ INTERVAL_CONFIGS: Dict[str, IntervalConfig] = {
         time_column="quote_datetime",
         period="60d",
         interval="1h",
-        to_time=lambda idx: to_python_datetime(idx).date(),
+        to_time=lambda idx: to_python_datetime(idx),
     ),
     "minute": IntervalConfig(
         table="yahoo_finance_data_minute",
         time_column="quote_datetime",
         period="7d",
         interval="1m",
-        to_time=lambda idx: to_python_datetime(idx).date(),
+        to_time=lambda idx: to_python_datetime(idx),
     ),
 }
 
@@ -159,6 +159,8 @@ def store_history(cursor, connection, table_name, time_column, data, to_time):
     #print(f"{cursor.rowcount} rows inserted into {table_name}.")
     logging.info("%s rows upserted into table %s", cursor.rowcount, table_name)
 
+REQUIRED_COLUMNS = ["Open", "High", "Low", "Close", "Volume"]
+
 def normalise_history_frame(data: pd.DataFrame) -> pd.DataFrame:
     """Coerce Yahoo Finance frames into a predictable column layout."""
 
@@ -175,18 +177,22 @@ def normalise_history_frame(data: pd.DataFrame) -> pd.DataFrame:
         column_key = str(column).strip().lower()
         if column_key == "adj close":
             rename_map[column] = "Adj Close"
-        elif column_key in {"open", "high", "low", "close", "volume"}:
+        elif column_key in {'open', 'high', 'low', 'close', 'volume'}:
             rename_map[column] = column_key.capitalize()
 
     if rename_map:
         normalised.rename(columns=rename_map, inplace=True)
+
+    for required in REQUIRED_COLUMNS:
+        if required not in normalised.columns:
+            normalised[required] = pd.NA
 
     return normalised
 
 def fetch_history(symbol: str, *, period:str, interval: str):
     """Download fresh OHLCV candles from Yahoo Finance."""
 
-    return yf.download(
+    data = yf.download(
         tickers=symbol,
         period=period,
         interval=interval,
