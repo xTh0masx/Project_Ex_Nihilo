@@ -13,12 +13,13 @@ from dataclasses import dataclass
 from typing import Callable, Dict
 
 import yfinance as yf
+import pandas as pd
 import mysql.connector
 from mysql.connector import Error
 
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s [%(levelname)s]: %(message)s",
+    format="%(asctime)s [%(levelname)s] %(message)s",
 )
 
 def to_python_datetime(timestamp):
@@ -45,7 +46,6 @@ DB_CONFIG: Dict[str, str | int] = {
     "password": "Digimon@4123",
     "database": "ex_nihilo",
     "auth_plugin": "mysql_native_password",
-
 }
 
 INTERVAL_CONFIGS: Dict[str, IntervalConfig] = {
@@ -135,28 +135,76 @@ def store_history(cursor, connection, table_name, time_column, data, to_time):
             volume = VALUES(volume)
     """
 
-    rows = [
+    rows = []
+    for idx, row in data.iterrows():
+        volume = row["Volume"]
+        volume_value = int(round(float(volume))) if volume == volume else None
+        rows.append(
         (
             to_time(idx),
             float(row["Open"]),
             float(row["High"]),
             float(row["Low"]),
             float(row["Close"]),
-            float(row["Volume"]),
+            volume_value,
         )
-        for idx, row in data.iterrows()
-    ]
+    )
+
+    if not rows:
+        logging.info("No valid rows to store for table %s", table_name)
+        return
 
     cursor.executemany(insert_statement, rows)
     connection.commit()
     #print(f"{cursor.rowcount} rows inserted into {table_name}.")
     logging.info("%s rows upserted into table %s", cursor.rowcount, table_name)
 
-def refresh_interval(cursor, connection, ticker, config: IntervalConfig):
+def normalise_history_frame(data: pd.DataFrame) -> pd.DataFrame:
+    """Coerce Yahoo Finance frames into a predictable column layout."""
+
+    if data.empty:
+        return data
+
+    normalised = data.copy()
+
+    if isinstance(normalised.columns, pd.MultiIndex):
+        normalised.columns = normalised.columns.get_level_values(-1)
+
+    rename_map = {}
+    for column in normalised.columns:
+        column_key = str(column).strip().lower()
+        if column_key == "adj close":
+            rename_map[column] = "Adj Close"
+        elif column_key in {"open", "high", "low", "close", "volume"}:
+            rename_map[column] = column_key.capitalize()
+
+    if rename_map:
+        normalised.rename(columns=rename_map, inplace=True)
+
+    return normalised
+
+def fetch_history(symbol: str, *, period:str, interval: str):
+    """Download fresh OHLCV candles from Yahoo Finance."""
+
+    return yf.download(
+        tickers=symbol,
+        period=period,
+        interval=interval,
+        auto_adjust=False,
+        actions=False,
+        progress=False,
+        threads=False,
+    )
+
+    return normalise_history_frame(data)
+
+def refresh_interval(cursor, connection, symbol:str, config: IntervalConfig):
     """Fetch and store OHLCV for a single interval configuration."""
 
     logging.info("Updating %s data", config.interval)
-    data = ticker.history(period=config.period, interval=config.interval)
+    data = fetch_history(symbol, period=config.period, interval=config.interval)
+    if not data.empty:
+        data = data.dropna(subset=["Open", "High", "Low", "Close", "Volume"])
     store_history(cursor, connection, config.table, config.time_column, data, config.to_time)
 
 def update_all_intervals():
@@ -169,9 +217,9 @@ def update_all_intervals():
         cursor = connection.cursor()
         ensure_tables(cursor)
 
-        ticker = yf.Ticker("BTC-USD")
+        symbol = "BTC-USD"
         for config in INTERVAL_CONFIGS.values():
-            refresh_interval(cursor, connection, ticker, config)
+            refresh_interval(cursor, connection, symbol, config)
 
     except Error as error:
         logging.exception("Failed to fetch/store BTC OHLCV data: %s", error)
@@ -181,7 +229,7 @@ def update_all_intervals():
         if connection is not None and connection.is_connected():
             connection.close()
 
-def run_schedule(poll_interval_seconds: int = 60):
+def run_scheduler(poll_interval_seconds: int = 60):
     """Continuously update OHLCV tables on a fixed interval."""
 
     logging.info("Starting BTC OHLCV updater (interval=%ss)", poll_interval_seconds)
@@ -198,4 +246,4 @@ def run_schedule(poll_interval_seconds: int = 60):
         logging.info("Stopping BTC OHLCV updater")
 
 if __name__ == "__main__":
-    run_schedule()
+    run_scheduler()
