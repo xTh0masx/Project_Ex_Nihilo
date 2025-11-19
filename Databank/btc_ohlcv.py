@@ -164,7 +164,7 @@ def store_history(cursor, connection, table_name, time_column, data, to_time):
     logging.info("%s rows upserted into table %s", cursor.rowcount, table_name)
 
 REQUIRED_COLUMNS = ["Open", "High", "Low", "Close", "Volume"]
-PRICE_COLUMNS = ["OPEN", "HIGH", "LOW", "CLOSE"]
+PRICE_COLUMNS = ["Open", "High", "Low", "Close"]
 
 def normalise_history_frame(data: pd.DataFrame) -> pd.DataFrame:
     """Coerce Yahoo Finance frames into a predictable column layout."""
