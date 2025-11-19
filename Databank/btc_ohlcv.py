@@ -137,8 +137,12 @@ def store_history(cursor, connection, table_name, time_column, data, to_time):
 
     rows = []
     for idx, row in data.iterrows():
-        volume = row["Volume"]
-        volume_value = int(round(float(volume))) if volume == volume else None
+        if any(pd.isna(row[column]) for column in PRICE_COLUMNS if column in row):
+            continue
+
+        volume = row.get("Volume", pd.NA)
+        volume_value = None if pd.isna(volume) else int(round(float(volume)))
+
         rows.append(
         (
             to_time(idx),
@@ -160,6 +164,7 @@ def store_history(cursor, connection, table_name, time_column, data, to_time):
     logging.info("%s rows upserted into table %s", cursor.rowcount, table_name)
 
 REQUIRED_COLUMNS = ["Open", "High", "Low", "Close", "Volume"]
+PRICE_COLUMNS = ["OPEN", "HIGH", "LOW", "CLOSE"]
 
 def normalise_history_frame(data: pd.DataFrame) -> pd.DataFrame:
     """Coerce Yahoo Finance frames into a predictable column layout."""
@@ -210,7 +215,13 @@ def refresh_interval(cursor, connection, symbol:str, config: IntervalConfig):
     logging.info("Updating %s data", config.interval)
     data = fetch_history(symbol, period=config.period, interval=config.interval)
     if not data.empty:
-        data = data.dropna(subset=["Open", "High", "Low", "Close", "Volume"])
+        subset = [column for column in PRICE_COLUMNS if column in data.columns]
+        if not subset:
+            logging.warning(
+                "Skipping %s update because price columns are missing", config.interval
+            )
+            return
+        data = data.dropna(subset=subset)
     store_history(cursor, connection, config.table, config.time_column, data, config.to_time)
 
 def update_all_intervals():
