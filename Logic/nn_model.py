@@ -570,6 +570,22 @@ def _dump_pickle(obj: object, path: Path) -> None:
         with path.open("wb") as handle:
             pickle.dump(obj, handle)
 
+def _json_safe(value):
+    """Convert common non-serialisable objects into JSON-friendly types."""
+
+    if isinstance(value, dict):
+        return {key: _json_safe(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_json_safe(item) for item in value]
+    if isinstance(value, tuple):
+        return [_json_safe(item) for item in value]
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, (np.floating, np.integer)):
+        return value.item()
+    if isinstance(value, np.ndarray):
+        return value.tolist()
+    return value
 
 # ---------------------------------------------------------------------------
 # Public API
@@ -581,13 +597,16 @@ def run_training_pipeline(
     model_cfg: ModelConfig,
     training_cfg: TrainingConfig,
     output_dir: Path = Path("models"),
+    warm_start_checkpoint: Optional[Path] = None,
 ) -> Dict[str, object]:
     """Execute the end-to-end modeling pipeline.
 
     The function returns a dictionary containing the training history, the best
     validation metrics, and the evaluation metrics on the held-out test split.
     Artefacts (model checkpoint, scalers, metrics, and configuration) are saved
-    in ``output_dir``.
+    in ``output_dir``. When ''warm_start_checkpoint'' is provided the model
+    weights are initialised from the checkpoint which enables continued
+    training when new data becomes available.
     """
 
     logger.info("Starting training pipeline")
@@ -622,6 +641,15 @@ def run_training_pipeline(
     )
 
     model = SequenceModel(input_size=len(feature_columns), cfg=model_cfg)
+
+    if warm_start_checkpoint is not None:
+        candidate = warm_start_checkpoint.resolve()
+        if candidate.exists():
+            state_dict = torch.load(candidate, map_location="cpu")
+            model.load_state_dict(state_dict)
+            logger.info("Loaded warm start weights from %s", candidate)
+        else:
+            logger.warning("Warm start checkpoint %s not found; training from scratch", candidate)
 
     history, val_metrics, trained_model = train_model(
         model,
@@ -660,7 +688,8 @@ def run_training_pipeline(
         _dump_pickle(target_scaler, target_scaler_path)
         logger.info("Saved target scaler to %s", target_scaler_path)
 
-    metadata = {
+    metadata = _json_safe(
+        {
         "data_config": asdict(data_cfg),
         "model_config": asdict(model_cfg),
         "training_config": asdict(training_cfg),
@@ -669,7 +698,8 @@ def run_training_pipeline(
         "val_metrics": val_metrics,
         "test_metrics": test_metrics,
         "history": history,
-    }
+        }
+    )
 
     metrics_path = output_dir / "metrics.json"
     with metrics_path.open("w", encoding="utf-8") as handle:

@@ -1,0 +1,87 @@
+{
+  "data_config": {
+    "data_dir": "C:\\Users\\thoma\\PycharmProjects\\Project_Ex_Nihilo\\Data_Access\\data\\processed",
+    "train_file": "train.parquet",
+    "val_file": "validation.parquet",
+    "test_file": "test.parquet",
+    "lookback": 60,
+    "target_column": "target_return_5",
+    "feature_columns": null,
+    "scale_target": false
+  },
+  "model_config": {
+    "architecture": "lstm",
+    "hidden_size": 64,
+    "num_layers": 2,
+    "dropout": 0.1,
+    "cnn_channels": 32,
+    "cnn_kernel_size": 3,
+    "output_size": 1
+  },
+  "training_config": {
+    "batch_size": 128,
+    "max_epochs": 25,
+    "patience": 5,
+    "min_delta": 0.0,
+    "learning_rate": 0.001,
+    "weight_decay": 0.0,
+    "loss": "mse",
+    "device": "auto",
+    "num_workers": 0,
+    "gradient_clip": null
+  },
+  "feature_columns": [
+    "open",
+    "high",
+    "low",
+    "close",
+    "volume",
+    "log_return_1",
+    "return_5",
+    "return_15",
+    "ema_12",
+    "ema_26",
+    "ema_ratio",
+    "rsi_14",
+    "volatility_30",
+    "atr_14",
+    "volume_zscore_30"
+  ],
+  "target_column": "target_return_5",
+  "val_metrics": {
+    "loss": 0.0038128828657043243,
+    "mae": 0.04438534751534462,
+    "rmse": 0.06174854316976524
+  },
+  "test_metrics": {
+    "loss": 0.01103738188254137,
+    "mae": 0.09208465367555618,
+    "rmse": 0.10505895120617005
+  },
+  "history": {
+    "train_loss": [
+      0.007838262896279523,
+      0.007574603902938411,
+      0.0074688519720287685,
+      0.007336924396310199,
+      0.007506577895864914,
+      0.007292604763054091,
+      0.0071210640278069545,
+      0.007122565592678443,
+      0.006990005344312317,
+      0.006830193614872663
+    ],
+    "val_loss": [
+      0.004116416922396552,
+      0.003915067245490359,
+      0.003895807457258449,
+      0.0038128828657043243,
+      0.004159418206634747,
+      0.003986731178405947,
+      0.003978102828246834,
+      0.004013152167636112,
+      0.004125759352243295,
+      0.004950560547792128
+    ]
+  }
+}
