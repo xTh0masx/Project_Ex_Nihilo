@@ -44,7 +44,7 @@ DB_CONFIG: Dict[str, str | int] = {
     "port": 3306,
     "user": "root",
     "password": "Digimon@4123",
-    "database": "ex_nihilo",
+    "database": "Ex_nihilo",
     "auth_plugin": "mysql_native_password",
 }
 
@@ -52,21 +52,21 @@ INTERVAL_CONFIGS: Dict[str, IntervalConfig] = {
     "daily": IntervalConfig(
         table="yahoo_finance_data",
         time_column="quote_date",
-        period="2y",
+        period="max",
         interval="1d",
         to_time=lambda idx: to_python_datetime(idx).date(),
     ),
     "hourly": IntervalConfig(
         table="yahoo_finance_data_hourly",
         time_column="quote_datetime",
-        period="60d",
+        period="max",
         interval="1h",
         to_time=lambda idx: to_python_datetime(idx),
     ),
     "minute": IntervalConfig(
         table="yahoo_finance_data_minute",
         time_column="quote_datetime",
-        period="7d",
+        period="max",
         interval="1m",
         to_time=lambda idx: to_python_datetime(idx),
     ),
@@ -144,15 +144,15 @@ def store_history(cursor, connection, table_name, time_column, data, to_time):
         volume_value = None if pd.isna(volume) else int(round(float(volume)))
 
         rows.append(
-        (
-            to_time(idx),
-            float(row["Open"]),
-            float(row["High"]),
-            float(row["Low"]),
-            float(row["Close"]),
-            volume_value,
+            (
+                to_time(idx),
+                float(row["Open"]),
+                float(row["High"]),
+                float(row["Low"]),
+                float(row["Close"]),
+                volume_value,
+            )
         )
-    )
 
     if not rows:
         logging.info("No valid rows to store for table %s", table_name)
@@ -194,26 +194,26 @@ def normalise_history_frame(data: pd.DataFrame) -> pd.DataFrame:
 
     return normalised
 
-def fetch_history(symbol: str, *, period:str, interval: str):
+def fetch_history(ticker: yf.Ticker, *, period: str, interval: str):
     """Download fresh OHLCV candles from Yahoo Finance."""
 
-    data = yf.download(
-        tickers=symbol,
+    history_kwargs = dict(
         period=period,
         interval=interval,
         auto_adjust=False,
         actions=False,
-        progress=False,
-        threads=False,
     )
-
+    try:
+        data = ticker.history(raise_errors=True, **history_kwargs)
+    except TypeError:
+        data = ticker.history(**history_kwargs)
     return normalise_history_frame(data)
 
-def refresh_interval(cursor, connection, symbol:str, config: IntervalConfig):
+def refresh_interval(cursor, connection, ticker: yf.Ticker, config: IntervalConfig):
     """Fetch and store OHLCV for a single interval configuration."""
 
     logging.info("Updating %s data", config.interval)
-    data = fetch_history(symbol, period=config.period, interval=config.interval)
+    data = fetch_history(ticker, period=config.period, interval=config.interval)
     if not data.empty:
         subset = [column for column in PRICE_COLUMNS if column in data.columns]
         if not subset:
@@ -235,8 +235,9 @@ def update_all_intervals():
         ensure_tables(cursor)
 
         symbol = "BTC-USD"
+        ticker = yf.Ticker(symbol)
         for config in INTERVAL_CONFIGS.values():
-            refresh_interval(cursor, connection, symbol, config)
+            refresh_interval(cursor, connection, ticker, config)
 
     except Error as error:
         logging.exception("Failed to fetch/store BTC OHLCV data: %s", error)
