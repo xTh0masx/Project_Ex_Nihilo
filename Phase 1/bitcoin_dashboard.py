@@ -226,7 +226,7 @@ def _update_databank() -> None:
 
     try:
         update_all_intervals()
-        st.session_state["databank_last_updated_at"] = datetime.utcnow()
+        st.session_state["databank_last_updated_at"] = datetime.now()
     except Exception as exc:  # pragma: no cover - runtime protection
         st.session_state["databank_last_updated_error"] = str(exc)
         st.warning(f"Failed to update databank automatically: {exc}")
@@ -235,14 +235,21 @@ def _update_databank() -> None:
 def _auto_refresh(interval_seconds: int = 60) -> None:
     """Periodically refresh cached data to keep charts up to date."""
 
-    refresh_count = st.autorefresh(interval=interval_seconds * 1000, key="data-autorefresh")
-    last_refresh = st.session_state.get("data_autorefresh_count", -1)
-    if refresh_count != last_refresh:
+    now = datetime.now()
+    next_refresh_at = st.session_state.get("data_autorefresh_next_at")
+
+    if next_refresh_at is None or now >= next_refresh_at:
         _update_databank()
         load_ohlcv.clear()
         load_trades.clear()
-        st.session_state["data_autorefresh_count"] = refresh_count
-        st.session_state["data_autorefresh_at"] = datetime.utcnow()
+        st.session_state["data_autorefresh_at"] = now
+        st.session_state["data_autorefresh_next_at"] = now + timedelta(seconds=interval_seconds)
+
+    interval_ms = interval_seconds * 1000
+    st.markdown(
+        f"<script>setTimeout(() => window.location.reload(), {interval_ms});</script>",
+        unsafe_allow_html=True,
+    )
 
     refreshed_at = st.session_state.get("data_autorefresh_at")
     last_message = refreshed_at.strftime("%Y-%m-%d %H:%M:%S UTC") if refreshed_at else "pending"
@@ -250,8 +257,9 @@ def _auto_refresh(interval_seconds: int = 60) -> None:
     databank_message = databank_at.strftime("%Y-%m-%d %H:%M:%S UTC") if databank_at else "pending"
     st.caption(
         "Auto-refresh enabled: databank updates via btc_ohlcv and cache clears "
-        f"every {interval_seconds} seconds (last databank update {databank_message}, "
-        f"last refresh {last_message})."
+        f"every {interval_seconds} seconds (next refresh scheduled at "
+        f"{st.session_state.get('data_autorefresh_next_at', 'pending')}, last databank update "
+        f"{databank_message}, last refresh {last_message})."
     )
 
 
