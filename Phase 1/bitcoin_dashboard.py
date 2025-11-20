@@ -420,6 +420,25 @@ def render_trades_table(trades: pd.DataFrame) -> None:
     if "pnl" in trades.columns:
         st.metric("Cumulative PnL", f"${trades['pnl'].sum():,.2f}")
 
+def _detect_active_trades(trades: pd.DataFrame) -> pd.DataFrame:
+    """Return trades that appear to be still active/open."""
+
+    if trades.empty:
+        return trades
+
+    status_col = next((col for col in trades.columns if col.lower() == "status"), None)
+    if status_col:
+        normalized = trades[status_col].astype(str).str.lower()
+        return trades[normalized.isin({"open", "active", "pending", "working", "in_progress"})]
+
+    close_col = next(
+        (col for col in trades.columns if col.lower() in {"closed_at", "exit_price", "close_price", "close_time"}),
+        None,
+    )
+    if close_col:
+        return trades[trades[close_col].isna()]
+
+    return trades.iloc[0:0]
 
 def main():  # pragma: no cover - Streamlit entrypoint
     st.set_page_config(page_title="BTC OHLCV Dashboard", layout="wide")
@@ -450,16 +469,37 @@ def main():  # pragma: no cover - Streamlit entrypoint
 
     min_ts = frame.index.min().to_pydatetime()
     max_ts = frame.index.max().to_pydatetime()
-    default_start = max_ts - timedelta(days=30)
-    start, end = st.slider(
-        "Date range",
-        min_value=min_ts,
-        max_value=max_ts,
-        value=(max(min_ts, default_start), max_ts),
-        format="YYYY-MM-DD",
+    default_start_dt = max(min_ts, max_ts - timedelta(days=30))
+
+    col_start_date, col_end_date = st.columns(2)
+    start_date = col_start_date.date_input(
+        "Start date",
+        value=default_start_dt.date(),
+        min_value=min_ts.date(),
+        max_value=max_ts.date(),
     )
-    start_ts = pd.Timestamp(start)
-    end_ts = pd.Timestamp(end)
+    end_date = col_end_date.date_input(
+        "End date",
+        value=max_ts.date(),
+        min_value=start_date,
+        max_value=max_ts.date(),
+    )
+    col_start_time, col_end_time = st.columns(2)
+    start_time = col_start_time.time_input("Start time", value=default_start_dt.time())
+    end_time = col_end_time.time_input("End time", value=max_ts.time())
+
+    start_dt = datetime.combine(start_date, start_time)
+    end_dt = datetime.combine(end_date, end_time)
+
+    start_dt = max(start_dt, min_ts)
+    end_dt = min(end_dt, max_ts)
+
+    if start_dt > end_dt:
+        st.warning("Start date/time must be before end date/time.")
+        return
+
+    start_ts = pd.Timestamp(start_dt)
+    end_ts = pd.Timestamp(end_dt)
 
     frame_slice = frame.loc[start_ts:end_ts]
     if frame_slice.empty:
@@ -486,6 +526,18 @@ def main():  # pragma: no cover - Streamlit entrypoint
             "The bot starts with $2,000 and risks up to $100 per trade. It trades "
             "until it reaches profitability or exhausts its trade budget."
         )
+
+        col_capital, col_active = st.columns([1, 2])
+        starting_capital = 2000.0
+        realized_pnl = trades_slice["pnl"].sum() if "pnl" in trades_slice.columns else 0.0
+        col_capital.metric("Starting capital", f"${starting_capital:,.2f}")
+        col_capital.metric("Capital after selected trades", f"${starting_capital + realized_pnl:,.2f}")
+
+        active_trades = _detect_active_trades(trades_slice)
+        if active_trades.empty:
+            col_active.info("No active bot trades detected for the selected range.")
+        else:
+            col_active.dataframe(active_trades, width='stretch', hide_index=True, use_container_width=True)
 
         if st.button("TRADE WITH BOT", width='stretch'):
             bot_trades = _simulate_bot_trades(frame_slice)
