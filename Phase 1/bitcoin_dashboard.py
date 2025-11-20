@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+from pathlib import Path
 import os
+import sys
 from typing import Dict, Iterable, List
 from urllib.parse import quote_plus
 
@@ -14,6 +16,10 @@ from sqlalchemy.exc import SQLAlchemyError
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 from Databank.btc_ohlcv import update_all_intervals
 
@@ -381,7 +387,7 @@ def render_candlestick(frame: pd.DataFrame, trades: pd.DataFrame, title: str) ->
         margin=dict(l=10, r=10, t=60, b=10),
     )
 
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width='stretch')
 
 
 def render_summary(frame: pd.DataFrame) -> None:
@@ -409,7 +415,7 @@ def render_trades_table(trades: pd.DataFrame) -> None:
 
     latest_trades = trades.tail(200).copy()
     latest_trades["timestamp"] = latest_trades["timestamp"].dt.tz_localize(None)
-    st.dataframe(latest_trades, hide_index=True, use_container_width=True)
+    st.dataframe(latest_trades, hide_index=True, width='stretch')
 
     if "pnl" in trades.columns:
         st.metric("Cumulative PnL", f"${trades['pnl'].sum():,.2f}")
@@ -424,10 +430,10 @@ def main():  # pragma: no cover - Streamlit entrypoint
     st.sidebar.header("Dataset selection")
     dataset = st.sidebar.selectbox("Granularity", list(DATASETS.keys()))
 
-    if st.sidebar.button("Refresh data", use_container_width=True):
+    if st.sidebar.button("Refresh data", width='stretch'):
         _update_databank()
         load_ohlcv.clear()
-    if st.sidebar.button("Refresh trades", use_container_width=True):
+    if st.sidebar.button("Refresh trades", width='stretch'):
         load_trades.clear()
 
     try:
@@ -471,7 +477,7 @@ def main():  # pragma: no cover - Streamlit entrypoint
 
     tab_data, tab_trades = st.tabs(["Data preview", "Trades"])
     with tab_data:
-        st.dataframe(frame_slice.tail(500), use_container_width=True)
+        st.dataframe(frame_slice.tail(500), width='stretch')
     with tab_trades:
         render_trades_table(trades_slice)
 
@@ -481,7 +487,7 @@ def main():  # pragma: no cover - Streamlit entrypoint
             "until it reaches profitability or exhausts its trade budget."
         )
 
-        if st.button("TRADE WITH BOT", use_container_width=True):
+        if st.button("TRADE WITH BOT", width='stretch'):
             bot_trades = _simulate_bot_trades(frame_slice)
             st.session_state["bot_trades_result"] = bot_trades
 
@@ -492,7 +498,7 @@ def main():  # pragma: no cover - Streamlit entrypoint
             else:
                 total_pnl = bot_trades["pnl"].sum()
                 st.metric("Simulated PnL", f"${total_pnl:,.2f}")
-                st.dataframe(bot_trades, use_container_width=True, hide_index=True)
+                st.dataframe(bot_trades, width='stretch', hide_index=True)
 
     st.caption(
         "Data source: Yahoo Finance via the local MySQL databank. Refreshing "
