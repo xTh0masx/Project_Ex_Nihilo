@@ -1,4 +1,5 @@
 """Streamlit dashboard for exploring BTC OHLCV datasets and trades."""
+#to run streamlit copypaste -> streamlit run "Phase 1\\bitcoin_dashboard.py"
 
 from __future__ import annotations
 
