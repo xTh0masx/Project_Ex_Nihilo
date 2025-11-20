@@ -5,28 +5,89 @@ from __future__ import annotations
 from datetime import timedelta
 import os
 from typing import Dict, Iterable, List
+from urllib.parse import quote_plus
 
-import mysql.connector
-from mysql.connector import Error
+from sqlalchemy import create_engine, text
+from sqlalchemy.engine import Engine
+from sqlalchemy.exc import SQLAlchemyError
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
+
 
 def _env(key: str, default: str | int) -> str | int:
     """Read a database configuration value from the environment."""
 
     return os.getenv(key.upper(), default)
 
+
 DB_CONFIG: Dict[str, str | int] = {
     "host": _env("MYSQL_HOST", "127.0.0.1"),
-    "port": int(_env("MYSQL_PORT", "3306")),
+    "port": int(_env("MYSQL_PORT", 3306)),
     "user": _env("MYSQL_USER", "root"),
     "password": _env("MYSQL_PASSWORD", "Digimon@4123"),
-    "database": _env("MYSQL_DATABASE", "Ex_Nihilo"),
+    "database": _env("MYSQL_DATABASE", "ex_nihilo"),
     "auth_plugin": "mysql_native_password",
 }
 
-TRADE_TABLE =os.getenv("TRADE_TABLE", "bot_trades")
+TRADE_TABLE = os.getenv("TRADE_TABLE", "bot_trades")
+
+
+_ENGINE: Engine | None = None
+
+
+def _engine() -> Engine:
+    """Create (or reuse) a SQLAlchemy engine for pandas queries."""
+
+    global _ENGINE
+    if _ENGINE is None:
+        user = quote_plus(str(DB_CONFIG["user"]))
+        password = quote_plus(str(DB_CONFIG["password"]))
+        host = DB_CONFIG["host"]
+        port = DB_CONFIG["port"]
+        database = DB_CONFIG["database"]
+        auth_plugin = DB_CONFIG.get("auth_plugin")
+        query = f"?auth_plugin={quote_plus(str(auth_plugin))}" if auth_plugin else ""
+        url = f"mysql+mysqlconnector://{user}:{password}@{host}:{port}/{database}{query}"
+        _ENGINE = create_engine(url, pool_pre_ping=True)
+    return _ENGINE
+
+
+def _table_columns(table: str) -> List[str]:
+    """Fetch the ordered column names for a given table."""
+
+    with _engine().connect() as connection:
+        rows = connection.execute(
+            text(
+                """
+                SELECT COLUMN_NAME
+                FROM information_schema.columns
+                WHERE table_schema = :schema AND table_name = :table
+                ORDER BY ORDINAL_POSITION
+                """
+            ),
+            {"schema": DB_CONFIG["database"], "table": table},
+        ).fetchall()
+    return [row[0] for row in rows]
+
+
+def _resolve_time_column(table: str, preferred: str) -> str:
+    """Ensure the timestamp column exists, falling back to similar names."""
+
+    columns = _table_columns(table)
+    if not columns:
+        raise RuntimeError(f"Table '{table}' does not exist in schema {DB_CONFIG['database']}")
+    if preferred in columns:
+        return preferred
+
+    for candidate in ("quote_datetime", "quote_date", "timestamp", "quote_time"):
+        if candidate in columns:
+            return candidate
+
+    raise RuntimeError(
+        f"None of the expected timestamp columns ({preferred}) exist on table '{table}'."
+    )
+
 
 DATASETS = {
     "Minute": {
@@ -44,45 +105,45 @@ DATASETS = {
 }
 
 
-def _query_dataframe(query: str, *, parse_date: Iterable[str] | None = None, parse_dates = None) -> pd.DataFrame:
+def _query_dataframe(query: str, *, parse_dates: Iterable[str] | None = None) -> pd.DataFrame:
     """Execute a SQL query and return the resulting dataframe."""
 
-    connection = mysql.connector.connect(**DB_CONFIG)
-    try:
-        return pd.read_sql(query, con=connection, parse_dates=list(parse_dates or []))
-    finally:
-        if connection.is_connected():
-            connection.close()
+    with _engine().connect() as connection:
+        return pd.read_sql_query(text(query), con=connection, parse_dates=list(parse_dates or []))
+
 
 @st.cache_data(ttl=60)
 def load_ohlcv(granularity: str) -> pd.DataFrame:
     """Load OHLCV rows for the selected granularity into a dataframe."""
 
     config = DATASETS[granularity]
+    time_column = _resolve_time_column(config["table"], config["time_column"])
     query = (
-        f"SELECT {config['time_column']} AS timestamp, open, high, low, close, volume"
-        f"FROM {config['table']} ORDER BY {config['time_column']}"
+        f"SELECT `{time_column}` AS timestamp, open, high, low, close, volume "
+        f"FROM `{config['table']}` ORDER BY `{time_column}`"
     )
-    frame = _query_dataframe(query, parse_date=["timestamp"])
+    frame = _query_dataframe(query, parse_dates=["timestamp"])
     frame.set_index("timestamp", inplace=True)
     frame.sort_index(inplace=True)
     numeric_cols = ["open", "high", "low", "close", "volume"]
     frame[numeric_cols] = frame[numeric_cols].apply(pd.to_numeric, errors="coerce")
-    frame.dropma(subset=numeric_cols, inplace=True)
+    frame.dropna(subset=numeric_cols, inplace=True)
     return frame
 
-def _detect_trade_columns(connection) -> List[str]:
-    cursor = connection.cursor()
-    cursor.execute(
-        """
-        SELECT COLUMN_NAME
-        FROM information_schema.columns
-        WHERE table_schema = %s AND table_name = %s
-        ORDER BY ORDINAL_POSITION
-        """,
-        (DB_CONFIG["database"], TRADE_TABLE),
-    )
-    return [row[0] for row in cursor.fetchall()]
+
+def _detect_trade_columns(connection, table: str) -> List[str]:
+    rows = connection.execute(
+        text(
+            """
+            SELECT COLUMN_NAME
+            FROM information_schema.columns
+            WHERE table_schema = :schema AND table_name = :table
+            ORDER BY ORDINAL_POSITION
+            """
+        ),
+        {"schema": DB_CONFIG["database"], "table": table},
+    ).fetchall()
+    return [row[0] for row in rows]
 
 
 @st.cache_data(ttl=30)
@@ -93,24 +154,25 @@ def load_trades() -> pd.DataFrame:
         return pd.DataFrame()
 
     try:
-        connection = mysql.connector.connect(**DB_CONFIG)
-    except Error:
+        connection = _engine().connect()
+    except SQLAlchemyError:
         return pd.DataFrame()
-    try:
-        cursor = connection.cursor()
-        cursor.execute(
-            """
-            SELECT COUNT(*)
-            FROM information_schema.tables
-            WHERE table_schema = %s
-              AND table_name = %s
-            """,
-            (DB_CONFIG["database"], TRADE_TABLE),
-        )
-        if cursor.fetchone()[0] == 0:
+
+    with connection:
+        exists = connection.execute(
+            text(
+                """
+                SELECT COUNT(*)
+                FROM information_schema.tables
+                WHERE table_schema = :schema AND table_name = :table
+                """
+            ),
+            {"schema": DB_CONFIG["database"], "table": TRADE_TABLE},
+        ).scalar()
+        if not exists:
             return pd.DataFrame()
 
-        available_columns = _detect_trade_columns(connection)
+        available_columns = _detect_trade_columns(connection, TRADE_TABLE)
         timestamp_column = next(
             (col for col in ("executed_at", "created_at", "timestamp") if col in available_columns),
             None,
@@ -136,15 +198,13 @@ def load_trades() -> pd.DataFrame:
                 select_columns.append(column)
 
         query = (
-            f"SELECT {', '.join(select_columns)} FROM {TRADE_TABLE}"
-            f"ORDER BY {timestamp_column}"
+            f"SELECT {', '.join(f'`{col}`' for col in select_columns)} FROM `{TRADE_TABLE}` "
+            f"ORDER BY `{timestamp_column}`"
         )
-        trades = pd.read_sql(query, con=connection, parse_dates=[timestamp_column])
-    except Error:
-        return pd.DataFrame()
-    finally:
-        if connection.is_connected():
-            connection.close()
+        try:
+            trades = pd.read_sql_query(text(query), con=connection, parse_dates=[timestamp_column])
+        except SQLAlchemyError:
+            return pd.DataFrame()
 
     trades.rename(columns={timestamp_column: "timestamp"}, inplace=True)
     if "direction" in trades.columns and "side" not in trades.columns:
@@ -171,11 +231,12 @@ def _split_trades_by_side(trades: pd.DataFrame) -> Dict[str, pd.DataFrame]:
     sells = trades[normalized.isin({"SELL", "SHORT"})]
     return {"buy": buys, "sell": sells}
 
+
 def render_candlestick(frame: pd.DataFrame, trades: pd.DataFrame, title: str) -> None:
     """Render a candlestick chart with optional trade markers."""
 
     fig = go.Figure(
-        data =
+        data=
         [
             go.Candlestick(
                 x=frame.index,
@@ -223,6 +284,7 @@ def render_candlestick(frame: pd.DataFrame, trades: pd.DataFrame, title: str) ->
 
     st.plotly_chart(fig, use_container_width=True)
 
+
 def render_summary(frame: pd.DataFrame) -> None:
     """Display quick statistics for the selected data slice."""
 
@@ -253,6 +315,7 @@ def render_trades_table(trades: pd.DataFrame) -> None:
     if "pnl" in trades.columns:
         st.metric("Cumulative PnL", f"${trades['pnl'].sum():,.2f}")
 
+
 def main():  # pragma: no cover - Streamlit entrypoint
     st.set_page_config(page_title="BTC OHLCV Dashboard", layout="wide")
     st.title("Bitcoin OHLCV Dashboard")
@@ -267,7 +330,7 @@ def main():  # pragma: no cover - Streamlit entrypoint
 
     try:
         frame = load_ohlcv(dataset)
-    except Error as exc:
+    except SQLAlchemyError as exc:
         st.error(f"Failed to load data from MySQL: {exc}")
         return
 
@@ -314,6 +377,7 @@ def main():  # pragma: no cover - Streamlit entrypoint
         "Data source: Yahoo Finance via the local MySQL databank. Refreshing "
         "the dataset will invalidate the one-minute cache."
     )
+
 
 if __name__ == "__main__":  # pragma: no cover - Streamlit runner
     main()
