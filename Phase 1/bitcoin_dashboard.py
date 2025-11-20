@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 import os
 from typing import Dict, Iterable, List
 from urllib.parse import quote_plus
@@ -15,6 +15,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
+from Databank.btc_ohlcv import update_all_intervals
 
 def _env(key: str, default: str | int) -> str | int:
     """Read a database configuration value from the environment."""
@@ -220,6 +221,95 @@ def load_trades() -> pd.DataFrame:
     trades.sort_values("timestamp", inplace=True)
     return trades
 
+def _update_databank() -> None:
+    """Pull fresh BTC OHLCV data into the MySQL databank using btc_ohlcv."""
+
+    try:
+        update_all_intervals()
+        st.session_state["databank_last_updated_at"] = datetime.utcnow()
+    except Exception as exc:  # pragma: no cover - runtime protection
+        st.session_state["databank_last_updated_error"] = str(exc)
+        st.warning(f"Failed to update databank automatically: {exc}")
+
+
+def _auto_refresh(interval_seconds: int = 60) -> None:
+    """Periodically refresh cached data to keep charts up to date."""
+
+    refresh_count = st.autorefresh(interval=interval_seconds * 1000, key="data-autorefresh")
+    last_refresh = st.session_state.get("data_autorefresh_count", -1)
+    if refresh_count != last_refresh:
+        _update_databank()
+        load_ohlcv.clear()
+        load_trades.clear()
+        st.session_state["data_autorefresh_count"] = refresh_count
+        st.session_state["data_autorefresh_at"] = datetime.utcnow()
+
+    refreshed_at = st.session_state.get("data_autorefresh_at")
+    last_message = refreshed_at.strftime("%Y-%m-%d %H:%M:%S UTC") if refreshed_at else "pending"
+    databank_at = st.session_state.get("databank_last_updated_at")
+    databank_message = databank_at.strftime("%Y-%m-%d %H:%M:%S UTC") if databank_at else "pending"
+    st.caption(
+        "Auto-refresh enabled: databank updates via btc_ohlcv and cache clears "
+        f"every {interval_seconds} seconds (last databank update {databank_message}, "
+        f"last refresh {last_message})."
+    )
+
+
+def _simulate_bot_trades(
+    frame: pd.DataFrame,
+    *,
+    starting_capital: float = 2000.0,
+    max_trade_usd: float = 100.0,
+    max_trades: int = 200,
+) -> pd.DataFrame:
+    """Run a simple strategy until profitability or limits are reached."""
+
+    closes = frame["close"].copy()
+    fast = closes.rolling(window=5, min_periods=5).mean()
+    slow = closes.rolling(window=20, min_periods=20).mean()
+
+    capital = starting_capital
+    trades: List[Dict[str, float | str | pd.Timestamp]] = []
+    previous_signal = None
+
+    for idx in range(len(closes) - 1):
+        if len(trades) >= max_trades or capital <= 0:
+            break
+
+        signal = "hold"
+        if not pd.isna(fast.iloc[idx]) and not pd.isna(slow.iloc[idx]):
+            signal = "buy" if fast.iloc[idx] > slow.iloc[idx] else "sell"
+
+        if signal == "hold" or signal == previous_signal:
+            continue
+
+        entry_price = closes.iloc[idx]
+        exit_price = closes.iloc[idx + 1]
+        trade_size = min(max_trade_usd, capital)
+        quantity = trade_size / entry_price
+
+        if signal == "buy":
+            pnl = quantity * (exit_price - entry_price)
+        else:
+            pnl = quantity * (entry_price - exit_price)
+
+        capital += pnl
+        trades.append(
+            {
+                "timestamp": closes.index[idx + 1],
+                "side": signal,
+                "entry_price": entry_price,
+                "exit_price": exit_price,
+                "pnl": pnl,
+                "remaining_capital": capital,
+            }
+        )
+        previous_signal = signal
+
+        if capital - starting_capital > 0:
+            break
+
+    return pd.DataFrame(trades)
 
 def _split_trades_by_side(trades: pd.DataFrame) -> Dict[str, pd.DataFrame]:
     side_series = trades.get("side")
@@ -319,12 +409,15 @@ def render_trades_table(trades: pd.DataFrame) -> None:
 
 def main():  # pragma: no cover - Streamlit entrypoint
     st.set_page_config(page_title="BTC OHLCV Dashboard", layout="wide")
-    st.title("Bitcoin OHLCV Dashboard")
+    st.title("Bitcoin OHLCV Dashboard - Ex Nihilo")
+
+    _auto_refresh(interval_seconds=60)
 
     st.sidebar.header("Dataset selection")
     dataset = st.sidebar.selectbox("Granularity", list(DATASETS.keys()))
 
     if st.sidebar.button("Refresh data", use_container_width=True):
+        _update_databank()
         load_ohlcv.clear()
     if st.sidebar.button("Refresh trades", use_container_width=True):
         load_trades.clear()
@@ -373,6 +466,25 @@ def main():  # pragma: no cover - Streamlit entrypoint
         st.dataframe(frame_slice.tail(500), use_container_width=True)
     with tab_trades:
         render_trades_table(trades_slice)
+
+        st.subheader("Neural network bot simulation")
+        st.write(
+            "The bot starts with $2,000 and risks up to $100 per trade. It trades "
+            "until it reaches profitability or exhausts its trade budget."
+        )
+
+        if st.button("TRADE WITH BOT", use_container_width=True):
+            bot_trades = _simulate_bot_trades(frame_slice)
+            st.session_state["bot_trades_result"] = bot_trades
+
+        bot_trades = st.session_state.get("bot_trades_result")
+        if bot_trades is not None:
+            if bot_trades.empty:
+                st.info("Bot could not find a profitable setup in the selected window.")
+            else:
+                total_pnl = bot_trades["pnl"].sum()
+                st.metric("Simulated PnL", f"${total_pnl:,.2f}")
+                st.dataframe(bot_trades, use_container_width=True, hide_index=True)
 
     st.caption(
         "Data source: Yahoo Finance via the local MySQL databank. Refreshing "
