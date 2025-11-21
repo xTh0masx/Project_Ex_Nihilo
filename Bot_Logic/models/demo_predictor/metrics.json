@@ -1,0 +1,30 @@
+{
+  "feature_columns": [
+    "close",
+    "return_1"
+  ],
+  "data_config": {
+    "data_dir": "data\\processed",
+    "train_file": "train.parquet",
+    "val_file": "validation.parquet",
+    "test_file": "test.parquet",
+    "lookback": 15,
+    "target_column": null,
+    "feature_columns": [
+      "close",
+      "return_1"
+    ],
+    "scale_target": false
+  },
+  "model_config": {
+    "architecture": "lstm",
+    "hidden_size": 8,
+    "num_layers": 1,
+    "dropout": 0.0,
+    "cnn_channels": 32,
+    "cnn_kernel_size": 3,
+    "output_size": 1
+  },
+  "val_mae": null,
+  "test_mae": null
+}
