@@ -4,10 +4,12 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+import threading
+import time
 from pathlib import Path
 import os
 import sys
-from typing import Dict, Iterable, List
+from typing import Dict, Iterable, List, Tuple
 from urllib.parse import quote_plus
 
 from sqlalchemy import create_engine, text
@@ -22,6 +24,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from Databank.btc_ohlcv import update_all_intervals
+from Bot_Logic.strategy import Action, SpotProfitStopStrategy
 
 def _env(key: str, default: str | int) -> str | int:
     """Read a database configuration value from the environment."""
@@ -95,6 +98,160 @@ def _resolve_time_column(table: str, preferred: str) -> str:
     raise RuntimeError(
         f"None of the expected timestamp columns ({preferred}) exist on table '{table}'."
     )
+
+class TradingBotRunner:
+    """Background trading loop that stays active while the dashboard is open."""
+
+    def __init__(
+        self,
+        engine: Engine,
+        *,
+        price_table: str,
+        time_column: str,
+        poll_interval_seconds: int = 60,
+    ) -> None:
+        self.engine = engine
+        self.price_table = price_table
+        self.time_column = time_column
+        self.poll_interval_seconds = poll_interval_seconds
+        self.stop_event = threading.Event()
+        self.thread: threading.Thread | None = None
+        self.strategy = SpotProfitStopStrategy()
+        self.last_timestamp: pd.Timestamp | None = None
+        self.entry_price: float | None = None
+        self.trade_count = 0
+        self.last_error: str | None = None
+        self.last_loop_started_at: datetime | None = None
+
+    def is_running(self) -> bool:
+        return self.thread is not None and self.thread.is_alive()
+
+    def start(self) -> None:
+        if self.is_running():
+            return
+
+        self.stop_event.clear()
+        self.thread = threading.Thread(target=self._run_loop, daemon=True)
+        self.thread.start()
+
+    def stop(self) -> None:
+        if not self.is_running():
+            return
+
+        self.stop_event.set()
+        if self.thread is not None:
+            self.thread.join(timeout=1)
+
+    def _run_loop(self) -> None:
+        try:
+            self._ensure_trade_table()
+        except Exception as exc:  # pragma: no cover - defensive guard
+            self.last_error = str(exc)
+            return
+
+        while not self.stop_event.is_set():
+            self.last_loop_started_at = datetime.utcnow()
+            try:
+                update_all_intervals()
+                latest = self._fetch_latest_price()
+                if latest is not None:
+                    self._maybe_trade(latest)
+                    self.last_error = None
+            except Exception as exc:  # pragma: no cover - runtime safety
+                self.last_error = str(exc)
+            finally:
+                time.sleep(self.poll_interval_seconds)
+
+    def _ensure_trade_table(self) -> None:
+        if not TRADE_TABLE:
+            raise RuntimeError("TRADE_TABLE environment variable must be set for live trading")
+
+        ddl = f"""
+            CREATE TABLE IF NOT EXISTS `{TRADE_TABLE}` (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                timestamp DATETIME NOT NULL,
+                side VARCHAR(10) NOT NULL,
+                price DECIMAL(18, 8) NOT NULL,
+                entry_price DECIMAL(18, 8) NOT NULL,
+                exit_price DECIMAL(18, 8) NOT NULL,
+                pnl DECIMAL(18, 8) NOT NULL,
+                strategy VARCHAR(64) NOT NULL
+            )
+        """
+        with self.engine.begin() as connection:
+            connection.execute(text(ddl))
+
+    def _fetch_latest_price(self) -> Tuple[pd.Timestamp, float] | None:
+        query = text(
+            f"""
+            SELECT `{self.time_column}` AS ts, close
+            FROM `{self.price_table}`
+            ORDER BY `{self.time_column}` DESC
+            LIMIT 1
+            """
+        )
+        with self.engine.connect() as connection:
+            row = connection.execute(query).mappings().first()
+            if not row:
+                return None
+
+        timestamp = pd.to_datetime(row["ts"])
+        price = float(row["close"])
+        return timestamp, price
+
+    def _maybe_trade(self, latest: Tuple[pd.Timestamp, float]) -> None:
+        timestamp, price = latest
+
+        if self.last_timestamp is not None and timestamp <= self.last_timestamp:
+            return
+
+        self.last_timestamp = timestamp
+
+        if self.entry_price is None:
+            self.entry_price = price
+            return
+
+        action = self.strategy.evaluate(self.entry_price, price)
+        if action is Action.HOLD:
+            return
+
+        side = "SELL" if action is Action.TAKE_PROFIT else "STOP"
+        pnl = price - self.entry_price
+        self._record_trade(timestamp, side, price, self.entry_price, price, pnl)
+        self.entry_price = price
+        self.trade_count += 1
+
+    def _record_trade(
+        self,
+        timestamp: pd.Timestamp,
+        side: str,
+        price: float,
+        entry_price: float,
+        exit_price: float,
+        pnl: float,
+    ) -> None:
+        insert = text(
+            f"""
+            INSERT INTO `{TRADE_TABLE}` (timestamp, side, price, entry_price, exit_price, pnl, strategy)
+            VALUES (:timestamp, :side, :price, :entry_price, :exit_price, :pnl, :strategy)
+            """
+        )
+
+        with self.engine.begin() as connection:
+            connection.execute(
+                insert,
+                {
+                    "timestamp": timestamp.to_pydatetime(),
+                    "side": side,
+                    "price": price,
+                    "entry_price": entry_price,
+                    "exit_price": exit_price,
+                    "pnl": pnl,
+                    "strategy": "spot_profit_stop",
+                },
+            )
+
+        load_trades.clear()
 
 
 DATASETS = {
@@ -312,6 +469,7 @@ def _simulate_bot_trades(
             {
                 "timestamp": closes.index[idx + 1],
                 "side": signal,
+                "quantity": quantity,
                 "entry_price": entry_price,
                 "exit_price": exit_price,
                 "pnl": pnl,
@@ -336,6 +494,30 @@ def _split_trades_by_side(trades: pd.DataFrame) -> Dict[str, pd.DataFrame]:
     sells = trades[normalized.isin({"SELL", "SHORT"})]
     return {"buy": buys, "sell": sells}
 
+def _get_trading_runner() -> TradingBotRunner | None:
+    """Instantiate or reuse a background trading bot tied to the minute feed."""
+
+    minute_config = DATASETS.get("Minute")
+    if minute_config is None:
+        return None
+
+    try:
+        time_column = _resolve_time_column(minute_config["table"], minute_config["time_column"])
+    except RuntimeError as exc:
+        st.warning(str(exc))
+        return None
+
+    runner: TradingBotRunner | None = st.session_state.get("live_trading_runner")
+    if runner is None or runner.time_column != time_column:
+        runner = TradingBotRunner(
+            _engine(),
+            price_table=minute_config["table"],
+            time_column=time_column,
+            poll_interval_seconds=60,
+        )
+        st.session_state["live_trading_runner"] = runner
+
+    return runner
 
 def render_candlestick(frame: pd.DataFrame, trades: pd.DataFrame, title: str) -> None:
     """Render a candlestick chart with optional trade markers."""
@@ -419,6 +601,41 @@ def render_trades_table(trades: pd.DataFrame) -> None:
 
     if "pnl" in trades.columns:
         st.metric("Cumulative PnL", f"${trades['pnl'].sum():,.2f}")
+
+def render_live_trading_controls(runner: TradingBotRunner | None) -> None:
+    """Show controls and status for the always-on trading bot."""
+
+    st.subheader("Live trading bot")
+
+    if runner is None:
+        st.info("Minute dataset unavailable; cannot start the live trading bot.")
+        return
+
+    status = "Running" if runner.is_running() else "Stopped"
+    last_loop = (
+        runner.last_loop_started_at.strftime("%Y-%m-%d %H:%M:%S UTC")
+        if runner.last_loop_started_at
+        else "pending"
+    )
+    st.caption(
+        f"Status: {status} | Trades executed: {runner.trade_count} | "
+        f"Last loop started: {last_loop}"
+    )
+
+    if runner.entry_price is not None:
+        st.caption(f"Active entry price: ${runner.entry_price:,.2f}")
+
+    if runner.last_error:
+        st.warning(f"Live bot error: {runner.last_error}")
+
+    col_start, col_stop = st.columns(2)
+    if col_start.button("Start live bot", disabled=runner.is_running(), use_container_width=True):
+        runner.start()
+        st.success("Live trading bot started. It will trade and refresh the databank automatically.")
+
+    if col_stop.button("Stop live bot", disabled=not runner.is_running(), use_container_width=True):
+        runner.stop()
+        st.info("Live trading bot stopped.")
 
 def _detect_active_trades(trades: pd.DataFrame) -> pd.DataFrame:
     """Return trades that appear to be still active/open."""
@@ -521,6 +738,9 @@ def main():  # pragma: no cover - Streamlit entrypoint
     with tab_trades:
         render_trades_table(trades_slice)
 
+        live_runner = _get_trading_runner()
+        render_live_trading_controls(live_runner)
+
         st.subheader("Neural network bot simulation")
         st.write(
             "The bot starts with $2,000 and risks up to $100 per trade. It trades "
@@ -532,6 +752,7 @@ def main():  # pragma: no cover - Streamlit entrypoint
         realized_pnl = trades_slice["pnl"].sum() if "pnl" in trades_slice.columns else 0.0
         col_capital.metric("Starting capital", f"${starting_capital:,.2f}")
         col_capital.metric("Capital after selected trades", f"${starting_capital + realized_pnl:,.2f}")
+        col_capital.metric("Actual PnL (selected trades)", f"${realized_pnl:,.2f}")
 
         active_trades = _detect_active_trades(trades_slice)
         if active_trades.empty:
@@ -549,8 +770,9 @@ def main():  # pragma: no cover - Streamlit entrypoint
                 st.info("Bot could not find a profitable setup in the selected window.")
             else:
                 total_pnl = bot_trades["pnl"].sum()
-                st.metric("Simulated PnL", f"${total_pnl:,.2f}")
-                st.dataframe(bot_trades, width='stretch', hide_index=True)
+                st.metric("Simulated Bot PnL", f"${total_pnl:,.2f}")
+                display_trades = bot_trades.rename(columns={"quantity": "Units purchased"})
+                st.dataframe(display_trades, width='stretch', hide_index=True)
 
     st.caption(
         "Data source: Yahoo Finance via the local MySQL databank. Refreshing "
