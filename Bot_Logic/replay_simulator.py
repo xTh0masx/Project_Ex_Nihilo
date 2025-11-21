@@ -21,7 +21,7 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.append(str(ROOT_DIR))
 
 from Logic.nn_inference import NeuralPricePredictor
-from strategy import Action, SpotProfitStopStrategy
+from Bot_Logic.strategy import Action, SpotProfitStopStrategy
 
 
 @dataclass
