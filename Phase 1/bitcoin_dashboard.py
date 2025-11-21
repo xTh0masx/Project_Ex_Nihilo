@@ -25,6 +25,8 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from Databank.btc_ohlcv import update_all_intervals
 from Bot_Logic.strategy import Action, SpotProfitStopStrategy
+from Bot_Logic.replay_simulator import HistoricalPriceStreamer, NeuralReplayTrader
+from Logic.nn_inference import NeuralPricePredictor
 
 def _env(key: str, default: str | int) -> str | int:
     """Read a database configuration value from the environment."""
@@ -483,6 +485,30 @@ def _simulate_bot_trades(
 
     return pd.DataFrame(trades)
 
+def _replay_trades_to_frame(trades: List) -> pd.DataFrame:
+    """Convert replay trades into a DataFrame for display/plotting."""
+
+    if not trades:
+        return pd.DataFrame()
+
+    rows = []
+    for trade in trades:
+        rows.append(
+            {
+                "timestamp": trade.exit_time or trade.entry_time,
+                "side": "buy",
+                "entry_price": trade.entry_price,
+                "exit_price": trade.exit_price,
+                "status": trade.status,
+                "pnl": (trade.profit_pct or 0.0) * trade.entry_price,
+                "bars": trade.bars_held,
+                "model_prediction": trade.model_prediction,
+            }
+        )
+    frame = pd.DataFrame(rows)
+    frame.sort_values("timestamp", inplace=True)
+    return frame
+
 def _split_trades_by_side(trades: pd.DataFrame) -> Dict[str, pd.DataFrame]:
     side_series = trades.get("side")
     if side_series is None:
@@ -570,6 +596,54 @@ def render_candlestick(frame: pd.DataFrame, trades: pd.DataFrame, title: str) ->
     )
 
     st.plotly_chart(fig, width='stretch')
+
+def render_neural_replay(
+    frame: pd.DataFrame,
+    start_ts: pd.Timestamp,
+    end_ts: pd.Timestamp,
+) -> None:
+    """Allow users to replay a historical window with neural guidance."""
+
+    st.subheader("Neural network live replay")
+    st.write(
+        "Simulate a live ticker using past data. Only candles between the selected"
+        " start and end dates are revealed to the bot. It opens long positions when"
+        " the neural model predicts upside and exits via profit target, stop loss,"
+        " or a defensive model-driven stop."
+    )
+
+    model_dir = Path(st.text_input("Model directory", "models/demo_predictor"))
+    entry_threshold = st.slider("Prediction to enter (return %)", 0.05, 2.0, 0.1, step=0.05) / 100
+    exit_threshold = st.slider("Prediction to force-exit (return %)", 0.05, 2.0, 0.2, step=0.05) / 100
+    delay_seconds = st.number_input("Seconds per candle (visual replay pacing)", value=1.0, min_value=0.0, step=0.5)
+
+    if not model_dir.exists():
+        st.info("Model directory not found. Train a model or point to an existing checkpoint.")
+        return
+
+    try:
+        predictor = NeuralPricePredictor(model_dir)
+    except Exception as exc:  # pragma: no cover - runtime safety for dashboard
+        st.error(f"Failed to load neural predictor: {exc}")
+        return
+
+    streamer = HistoricalPriceStreamer(frame, start=start_ts, end=end_ts)
+    trader = NeuralReplayTrader(
+        predictor,
+        entry_threshold=entry_threshold,
+        prediction_exit_threshold=exit_threshold,
+    )
+
+    if st.button("Run neural replay", use_container_width=True):
+        summary = trader.simulate(streamer, delay_seconds=delay_seconds)
+        replay_frame = _replay_trades_to_frame(summary.trades)
+
+        st.metric("Trades executed", len(summary.trades))
+        st.metric("Total PnL (approx, USD)", f"${replay_frame['pnl'].sum():,.2f}" if not replay_frame.empty else "$0.00")
+
+        render_candlestick(frame, replay_frame, "Replay candles with neural trades")
+        st.dataframe(replay_frame, hide_index=True, width='stretch')
+
 
 
 def render_summary(frame: pd.DataFrame) -> None:
@@ -773,6 +847,8 @@ def main():  # pragma: no cover - Streamlit entrypoint
                 st.metric("Simulated Bot PnL", f"${total_pnl:,.2f}")
                 display_trades = bot_trades.rename(columns={"quantity": "Units purchased"})
                 st.dataframe(display_trades, width='stretch', hide_index=True)
+
+        render_neural_replay(frame_slice, start_ts, end_ts)
 
     st.caption(
         "Data source: Yahoo Finance via the local MySQL databank. Refreshing "

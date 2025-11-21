@@ -1,0 +1,79 @@
+{
+  "data_config": {
+    "data_dir": "data\\processed\\demo",
+    "train_file": "train.parquet",
+    "val_file": "validation.parquet",
+    "test_file": "test.parquet",
+    "lookback": 30,
+    "target_column": "target_return_1",
+    "feature_columns": [
+      "close",
+      "return_1",
+      "return_3"
+    ],
+    "scale_target": false
+  },
+  "model_config": {
+    "architecture": "lstm",
+    "hidden_size": 32,
+    "num_layers": 1,
+    "dropout": 0.05,
+    "cnn_channels": 32,
+    "cnn_kernel_size": 3,
+    "output_size": 1
+  },
+  "training_config": {
+    "batch_size": 64,
+    "max_epochs": 12,
+    "patience": 3,
+    "min_delta": 0.0,
+    "learning_rate": 0.001,
+    "weight_decay": 0.0,
+    "loss": "mse",
+    "device": "auto",
+    "num_workers": 0,
+    "gradient_clip": null
+  },
+  "feature_columns": [
+    "close",
+    "return_1",
+    "return_3"
+  ],
+  "target_column": "target_return_1",
+  "val_metrics": {
+    "loss": 7.566209839026243e-05,
+    "mae": 0.006866900250315666,
+    "rmse": 0.008698396470228539
+  },
+  "test_metrics": {
+    "loss": 5.0132193492469084e-05,
+    "mae": 0.005703423172235489,
+    "rmse": 0.007080409539621607
+  },
+  "history": {
+    "train_loss": [
+      0.015761387687695177,
+      0.003851011335036328,
+      0.00048642838128178307,
+      0.0008298446997049174,
+      0.00038390753941535793,
+      0.00023402437029351413,
+      0.00021132440682017256,
+      0.00022538915880216984,
+      0.00024091956679186616,
+      0.00017746006748206786
+    ],
+    "val_loss": [
+      0.0029794114518061844,
+      0.0005802383419432783,
+      0.0025148529771573938,
+      0.0007706612327925955,
+      8.098687497674947e-05,
+      7.566209839026243e-05,
+      0.00028785559587487126,
+      0.0005238288151442155,
+      0.0003904950815323693,
+      8.66151046777097e-05
+    ]
+  }
+}
