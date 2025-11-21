@@ -9,7 +9,7 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 if str(ROOT_DIR) not in sys.path:
     sys.path.append(str(ROOT_DIR))
 
-from Logic.nn_inference import NeuralPricePredictor
+from Logic.nn_inference import NeuralPricePredictor, create_minimal_demo_model
 from Bot_Logic.replay_simulator import HistoricalPriceStreamer, NeuralReplayTrader
 from trade import TradeBot
 
@@ -27,9 +27,8 @@ def demo_run() -> None:
 
     model_dir = Path("model/demo_predictor")
     if not model_dir.exists():
-        raise FileNotFoundError(
-            "Demo model not found. Run `python Logic/demo_training.py` to generate it."
-        )
+        print("Demo model not found; creating a lightweight demo artefact...")
+        create_minimal_demo_model(model_dir)
 
     predictor = NeuralPricePredictor(model_dir)
     bot = TradeBot(predictor=predictor, prediction_exit_threshold=0.002)
@@ -58,9 +57,8 @@ def demo_replay() -> None:
 
     model_dir = Path("models/demo_predictor")
     if not model_dir.exists():
-        raise FileNotFoundError(
-            "Demo model not found. Run `python Logic/demo_training.py` to generate it."
-        )
+        print("Demo model not found; creating a lightweight demo artefact...")
+        create_minimal_demo_model(model_dir)
 
     predictor = NeuralPricePredictor(model_dir)
     trader = NeuralReplayTrader(predictor, entry_threshold=0.001, prediction_exit_threshold=0.002)

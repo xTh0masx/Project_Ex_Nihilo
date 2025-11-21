@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Iterable, List, Optional
 
 import importlib
+import pickle
 import numpy as np
 import pandas as pd
 import torch
@@ -15,6 +16,24 @@ from Logic.nn_model import DataConfig, ModelConfig, SequenceModel, _resolve_devi
 
 joblib_spec = importlib.util.find_spec("joblib")
 joblib = importlib.import_module("joblib") if joblib_spec is not None else None
+
+
+class IdentityScaler:
+    """Minimal scaler that leaves values unchanged.
+
+    This allows demo artefacts to be generated without requiring scikit-learn
+    while still satisfying the ``transform`` interface expected by
+    ``NeuralPricePredictor``.
+    """
+
+    def fit(self, _: np.ndarray) -> "IdentityScaler":  # pragma: no cover - trivial
+        return self
+
+    def transform(self, values: np.ndarray) -> np.ndarray:  # pragma: no cover - trivial
+        return values
+
+    def inverse_transform(self, values: np.ndarray) -> np.ndarray:  # pragma: no cover - trivial
+        return values
 
 
 class NeuralPricePredictor:
@@ -124,3 +143,57 @@ class NeuralPricePredictor:
         if len(frame) < self.lookback:
             return None
         return self.predict_next_return(frame)
+
+
+def create_minimal_demo_model(model_dir: Path) -> Path:
+    """Materialize a lightweight demo artefact directory for examples/tests.
+
+    The helper writes a tiny LSTM checkpoint together with feature/target
+    scalers and accompanying metadata so that ``NeuralPricePredictor`` can load
+    without running the full training pipeline. The model weights are random
+    (no training), but sufficient for deterministic inference in example flows.
+    """
+
+    model_dir = Path(model_dir)
+    model_dir.mkdir(parents=True, exist_ok=True)
+
+    feature_columns = ["close", "return_1"]
+    data_cfg = DataConfig(
+        lookback=15,
+        feature_columns=feature_columns,
+        scale_target=False,
+    )
+    model_cfg = ModelConfig(architecture="lstm", hidden_size=8, num_layers=1, dropout=0.0)
+
+    # Persist the metadata the predictor expects.
+    data_cfg_dict = data_cfg.__dict__.copy()
+    data_cfg_dict["data_dir"] = str(data_cfg_dict["data_dir"])
+
+    metadata = {
+        "feature_columns": feature_columns,
+        "data_config": data_cfg_dict,
+        "model_config": model_cfg.__dict__,
+        "val_mae": None,
+        "test_mae": None,
+    }
+    metrics_path = model_dir / "metrics.json"
+    with metrics_path.open("w", encoding="utf-8") as handle:
+        json.dump(metadata, handle, indent=2)
+
+    # Save a freshly initialised model checkpoint.
+    model = SequenceModel(input_size=len(feature_columns), cfg=model_cfg)
+    torch.save(model.state_dict(), model_dir / "best_model.pt")
+
+    # Write simple no-op scalers for features/targets.
+    feature_scaler = IdentityScaler()
+    target_scaler = IdentityScaler()
+    if joblib is not None:
+        joblib.dump(feature_scaler, model_dir / "feature_scaler.pkl")
+        joblib.dump(target_scaler, model_dir / "target_scaler.pkl")
+    else:  # pragma: no cover - pickle fallback
+        with (model_dir / "feature_scaler.pkl").open("wb") as handle:
+            pickle.dump(feature_scaler, handle)
+        with (model_dir / "target_scaler.pkl").open("wb") as handle:
+            pickle.dump(target_scaler, handle)
+
+    return model_dir
