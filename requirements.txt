@@ -1,7 +1,0 @@
-yfinance
-pandas
-numpy
-SQLAlchemy
-PyMySQL
-python-dotenv
-plotly
