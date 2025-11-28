@@ -493,14 +493,20 @@ def _replay_trades_to_frame(trades: List) -> pd.DataFrame:
 
     rows = []
     for trade in trades:
+        profit_pct = trade.profit_pct or 0.0
+        exit_price = trade.exit_price if trade.exit_price is not None else trade.entry_price
+        pnl_usd = profit_pct * trade.entry_price
         rows.append(
             {
                 "timestamp": trade.exit_time or trade.entry_time,
+                "entry_time": trade.entry_time,
+                "exit_time": trade.exit_time,
                 "side": "buy",
                 "entry_price": trade.entry_price,
-                "exit_price": trade.exit_price,
+                "exit_price": exit_price,
                 "status": trade.status,
-                "pnl": (trade.profit_pct or 0.0) * trade.entry_price,
+                "pnl_pct": profit_pct * 100,
+                "pnl_usd": pnl_usd,
                 "bars": trade.bars_held,
                 "model_prediction": trade.model_prediction,
             }
@@ -705,15 +711,18 @@ def render_neural_replay(start_ts: pd.Timestamp, end_ts: pd.Timestamp) -> None:
         progress_bar.progress(100)
         status_placeholder.success("Replay complete")
 
-        st.metric("Trades executed", len(summary.trades))
-        st.metric(
-            "Total PnL (approx, USD)",
-            f"${replay_frame['pnl'].sum():,.2f}" if not replay_frame.empty else "$0.00",
-        )
+        trade_count = len(summary.trades)
+        total_pnl_usd = replay_frame["pnl_usd"].sum() if not replay_frame.empty else 0.0
+
+        st.metric("Trades executed", trade_count)
+        st.metric("Total PnL (approx, USD)", f"${total_pnl_usd:,.2f}")
 
         with chart_placeholder.container():
             render_candlestick(frame_slice, replay_frame, "Replay candles with neural trades")
-        st.dataframe(replay_frame, hide_index=True, width="stretch")
+        if replay_frame.empty:
+            table_placeholder.info("No trades were opened during this replay window.")
+        else:
+            table_placeholder.dataframe(replay_frame, hide_index=True, width="stretch")
 
 
 
