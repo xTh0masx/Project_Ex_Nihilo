@@ -9,7 +9,6 @@ def to_python_datetime(timestamp):
         dt = dt.replace(tzinfo=None)
     return dt
 
-
 def store_history(cursor, connection, table_name, time_column, data, to_time):
     insert_statement = f"""
         INSERT INTO {table_name} ({time_column}, open, high, low, close, volume)
@@ -20,8 +19,8 @@ def store_history(cursor, connection, table_name, time_column, data, to_time):
             low = VALUES(low),
             close = VALUES(close),
             volume = VALUES(volume)
-    """
-
+        
+"""
     rows = [
         (
             to_time(idx),
@@ -39,8 +38,7 @@ def store_history(cursor, connection, table_name, time_column, data, to_time):
     print(f"{cursor.rowcount} rows inserted into {table_name}.")
 
 
-
-# MySQL connection
+# MySQL Connection
 connection = None
 cursor = None
 
@@ -50,7 +48,7 @@ try:
         port=3306,
         user='root',
         password='Digimon@4123',
-        database='ex_nihilo',
+        database='Ex_Nihilo',
         auth_plugin='mysql_native_password'
     )
 
@@ -73,7 +71,7 @@ try:
     cursor.execute(
         """
         CREATE TABLE IF NOT EXISTS yahoo_finance_data_hourly (
-            quote_datetime DATETIME PRIMARY KEY,
+            quote_datetime DATE PRIMARY KEY,
             open DECIMAL (18, 8),
             high DECIMAL (18, 8),
             low DECIMAL (18, 8),
@@ -85,7 +83,7 @@ try:
     cursor.execute(
         """
         CREATE TABLE IF NOT EXISTS yahoo_finance_data_minute (
-            quote_datetime DATETIME PRIMARY KEY,
+            quote_datetime DATE PRIMARY KEY,
             open DECIMAL (18, 8),
             high DECIMAL (18, 8),
             low DECIMAL (18, 8),
@@ -96,6 +94,7 @@ try:
     )
 
     btcusd = yf.Ticker("BTC-USD")
+
     daily_data = btcusd.history(period="max", interval="1d")
     store_history(
         cursor,
@@ -126,35 +125,6 @@ try:
         lambda idx: to_python_datetime(idx)
     )
 
-    # print(data.to_string())
-
-#    insert_stm = """
-    #        INSERT INTO yahoo_finance_data (quote_date, open, high, low, close, volume)
-    #   VALUES (%s, %s, %s, %s, %s, %s)
-    #   ON DUPLICATE KEY UPDATE
-    #       open=VALUES(open),
-    #       high=VALUES(high),
-    ##       low=VALUES(low),
-    #      close=VALUES(close),
-    #       volume=VALUES(volume)
-    #   """
-
-#    rows = [
-    #    (
-     #       idx.date(),
-     #       float(row["Open"]),
-     #       float(row["High"]),
-     #       float(row["Low"]),
-     #       float(row["Close"]),
-     #       float(row["Volume"])
-     #   )
-     #   for idx, row in data.iterrows()
-#    ]
-
-#    cursor.executemany(insert_stm, rows)
-#    connection.commit()
-#    print(f"{cursor.rowcount} rows inserted.")
-
 except Error as error:
     print(f"Failed to fetch/store BTC OHLCV data: \n{error}")
 
@@ -163,3 +133,4 @@ finally:
         cursor.close()
     if connection and connection.is_connected():
         connection.close()
+
