@@ -166,7 +166,7 @@ class NeuralPricePredictor:
                 continue
 
             if column.startswith("log_return_"):
-                ensure_lag_feature(column, log=True)
+                ensure_return_feature(column, log=True)
                 continue
 
             if column.startswith("lag_"):
