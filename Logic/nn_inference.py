@@ -173,16 +173,16 @@ class NeuralPricePredictor:
                 ensure_lag_feature(column)
                 continue
 
-            if column.startswith("ema_"):
-                ensure_ema_feature(column)
-                continue
-
             if column == "ema_ratio":
                 if "ema_12" not in working.columns:
                     ensure_ema_feature("ema_12")
                 if "ema_26" not in working.columns:
                     ensure_ema_feature("ema_26")
                 working[column] = working["ema_12"] / working["ema_26"] - 1
+                continue
+
+            if column.startswith("ema_"):
+                ensure_ema_feature(column)
                 continue
 
             if column.startswith("rsi_"):

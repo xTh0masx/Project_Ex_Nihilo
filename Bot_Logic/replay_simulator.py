@@ -12,7 +12,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Iterable, List, Optional
+from typing import Callable, Iterable, List, Optional
 
 import pandas as pd
 
@@ -109,6 +109,12 @@ class NeuralReplayTrader:
         streamer: HistoricalPriceStreamer,
         *,
         delay_seconds: float = 0.0,
+        on_step: Optional[
+            Callable[
+                [int, ReplayCandle, List[ReplayTrade], Optional[ReplayTrade], Optional[float]],
+                None,
+            ]
+        ] = None
     ) -> ReplaySummary:
         """Run the replay loop until the stream is exhausted."""
 
@@ -137,6 +143,8 @@ class NeuralReplayTrader:
                         bars_held=0,
                         model_prediction=prediction,
                     )
+                if on_step is not None:
+                    on_step(idx, bar, trades, active_trade, prediction)
                 continue
 
             # Manage an existing position
@@ -159,6 +167,8 @@ class NeuralReplayTrader:
                         )
                     )
                     active_trade = None
+                    if on_step is not None:
+                        on_step(idx, bar, trades, active_trade, prediction)
                     continue
 
             action = self.strategy.evaluate(active_trade.entry_price, bar.close)
@@ -176,6 +186,8 @@ class NeuralReplayTrader:
                     )
                 )
                 active_trade = None
+                if on_step is not None:
+                    on_step(idx, bar, trades, active_trade, prediction)
                 continue
 
             if action is Action.STOP_LOSS:
@@ -192,7 +204,12 @@ class NeuralReplayTrader:
                     )
                 )
                 active_trade = None
+                if on_step is not None:
+                    on_step(idx, bar, trades, active_trade, prediction)
                 continue
+
+            if on_step is not None:
+                on_step(idx, bar, trades, active_trade, prediction)
 
         if active_trade is not None:
             trades.append(

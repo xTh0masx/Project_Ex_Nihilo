@@ -655,14 +655,64 @@ def render_neural_replay(start_ts: pd.Timestamp, end_ts: pd.Timestamp) -> None:
         prediction_exit_threshold=exit_threshold,
     )
 
+    st.caption(
+        "The replay animates each candle in real time. Watch the chart and table"
+        " below update as the neural model opens or closes trades."
+    )
+
+    progress_bar = st.progress(0)
+    status_placeholder = st.empty()
+    chart_placeholder = st.empty()
+    table_placeholder = st.empty()
+
     if st.button("Run neural replay", width="stretch"):
-        summary = trader.simulate(streamer, delay_seconds=delay_seconds)
+        total_candles = len(frame_slice)
+        render_every = max(1, total_candles // 120)
+
+        def _on_step(idx, candle, trades, active_trade, prediction):
+            completed = idx + 1
+            progress_bar.progress(int((completed / total_candles) * 100))
+            prediction_text = f"{(prediction * 100):+.2f}%" if prediction is not None else "pending"
+            status_placeholder.info(
+                f"Candle {completed}/{total_candles} @ {candle.timestamp}: "
+                f"price ${candle.close:,.2f} | prediction {prediction_text}"
+            )
+
+            if (completed % render_every != 0) and (completed != total_candles):
+                return
+
+            trades_to_render = list(trades)
+            if active_trade is not None:
+                trades_to_render.append(active_trade)
+
+            replay_frame_live = _replay_trades_to_frame(trades_to_render)
+            with chart_placeholder.container():
+                render_candlestick(
+                    frame_slice.iloc[:completed],
+                    replay_frame_live,
+                    "Live replay progress",
+                )
+            if not replay_frame_live.empty:
+                table_placeholder.dataframe(
+                    replay_frame_live.tail(200), hide_index=True, width="stretch"
+                )
+
+        summary = trader.simulate(
+            streamer, delay_seconds=delay_seconds, on_step=_on_step
+        )
         replay_frame = _replay_trades_to_frame(summary.trades)
 
-        st.metric("Trades executed", len(summary.trades))
-        st.metric("Total PnL (approx, USD)", f"${replay_frame['pnl'].sum():,.2f}" if not replay_frame.empty else "$0.00")
+        progress_bar.progress(100)
+        status_placeholder.success("Replay complete")
 
-        render_candlestick(frame_slice, replay_frame, "Replay candles with neural trades")
+        st.metric("Trades executed", len(summary.trades))
+        st.metric(
+            "Total PnL (approx, USD)",
+            f"${replay_frame['pnl'].sum():,.2f}" if not replay_frame.empty else "$0.00",
+        )
+
+        with chart_placeholder.container():
+            render_candlestick(frame_slice, replay_frame, "Replay candles with neural trades")
         st.dataframe(replay_frame, hide_index=True, width="stretch")
 
 
