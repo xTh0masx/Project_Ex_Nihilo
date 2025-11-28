@@ -432,8 +432,8 @@ def _simulate_bot_trades(
     frame: pd.DataFrame,
     *,
     starting_capital: float = 2000.0,
-    max_trade_usd: float = 100.0,
-    max_trades: int = 200,
+    max_trade_usd: float = 1000.0,
+    max_trades: int = 1000,
 ) -> pd.DataFrame:
     """Run a simple strategy until profitability or limits are reached."""
 
@@ -595,7 +595,7 @@ def render_candlestick(frame: pd.DataFrame, trades: pd.DataFrame, title: str) ->
         margin=dict(l=10, r=10, t=60, b=10),
     )
 
-    st.plotly_chart(fig, width='stretch')
+    st.plotly_chart(fig, width="stretch")
 
 def render_neural_replay(start_ts: pd.Timestamp, end_ts: pd.Timestamp) -> None:
     """Allow users to replay a historical window with neural guidance.
@@ -655,7 +655,7 @@ def render_neural_replay(start_ts: pd.Timestamp, end_ts: pd.Timestamp) -> None:
         prediction_exit_threshold=exit_threshold,
     )
 
-    if st.button("Run neural replay", use_container_width=True):
+    if st.button("Run neural replay", width="stretch"):
         summary = trader.simulate(streamer, delay_seconds=delay_seconds)
         replay_frame = _replay_trades_to_frame(summary.trades)
 
@@ -663,7 +663,7 @@ def render_neural_replay(start_ts: pd.Timestamp, end_ts: pd.Timestamp) -> None:
         st.metric("Total PnL (approx, USD)", f"${replay_frame['pnl'].sum():,.2f}" if not replay_frame.empty else "$0.00")
 
         render_candlestick(frame_slice, replay_frame, "Replay candles with neural trades")
-        st.dataframe(replay_frame, hide_index=True, width='stretch')
+        st.dataframe(replay_frame, hide_index=True, width="stretch")
 
 
 
@@ -692,7 +692,7 @@ def render_trades_table(trades: pd.DataFrame) -> None:
 
     latest_trades = trades.tail(200).copy()
     latest_trades["timestamp"] = latest_trades["timestamp"].dt.tz_localize(None)
-    st.dataframe(latest_trades, hide_index=True, width='stretch')
+    st.dataframe(latest_trades, hide_index=True, width="stretch")
 
     if "pnl" in trades.columns:
         st.metric("Cumulative PnL", f"${trades['pnl'].sum():,.2f}")
@@ -724,11 +724,11 @@ def render_live_trading_controls(runner: TradingBotRunner | None) -> None:
         st.warning(f"Live bot error: {runner.last_error}")
 
     col_start, col_stop = st.columns(2)
-    if col_start.button("Start live bot", disabled=runner.is_running(), use_container_width=True):
+    if col_start.button("Start live bot", disabled=runner.is_running(), width="stretch"):
         runner.start()
         st.success("Live trading bot started. It will trade and refresh the databank automatically.")
 
-    if col_stop.button("Stop live bot", disabled=not runner.is_running(), use_container_width=True):
+    if col_stop.button("Stop live bot", disabled=not runner.is_running(), width="stretch"):
         runner.stop()
         st.info("Live trading bot stopped.")
 
@@ -761,10 +761,10 @@ def main():  # pragma: no cover - Streamlit entrypoint
     st.sidebar.header("Dataset selection")
     dataset = st.sidebar.selectbox("Granularity", list(DATASETS.keys()))
 
-    if st.sidebar.button("Refresh data", width='stretch'):
+    if st.sidebar.button("Refresh data", width="stretch"):
         _update_databank()
         load_ohlcv.clear()
-    if st.sidebar.button("Refresh trades", width='stretch'):
+    if st.sidebar.button("Refresh trades", width="stretch"):
         load_trades.clear()
 
     try:
@@ -829,7 +829,7 @@ def main():  # pragma: no cover - Streamlit entrypoint
 
     tab_data, tab_trades = st.tabs(["Data preview", "Trades"])
     with tab_data:
-        st.dataframe(frame_slice.tail(500), width='stretch')
+        st.dataframe(frame_slice.tail(500), width="stretch")
     with tab_trades:
         render_trades_table(trades_slice)
 
@@ -853,9 +853,9 @@ def main():  # pragma: no cover - Streamlit entrypoint
         if active_trades.empty:
             col_active.info("No active bot trades detected for the selected range.")
         else:
-            col_active.dataframe(active_trades, width='stretch', hide_index=True, use_container_width=True)
+            col_active.dataframe(active_trades, hide_index=True, width="stretch")
 
-        if st.button("TRADE WITH BOT", width='stretch'):
+        if st.button("TRADE WITH BOT", width="stretch"):
             bot_trades = _simulate_bot_trades(frame_slice)
             st.session_state["bot_trades_result"] = bot_trades
 
@@ -867,7 +867,7 @@ def main():  # pragma: no cover - Streamlit entrypoint
                 total_pnl = bot_trades["pnl"].sum()
                 st.metric("Simulated Bot PnL", f"${total_pnl:,.2f}")
                 display_trades = bot_trades.rename(columns={"quantity": "Units purchased"})
-                st.dataframe(display_trades, width='stretch', hide_index=True)
+                st.dataframe(display_trades, hide_index=True, width="stretch")
 
         render_neural_replay(start_ts, end_ts)
 
