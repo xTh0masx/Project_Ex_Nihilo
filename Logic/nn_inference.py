@@ -98,18 +98,107 @@ class NeuralPricePredictor:
         if "close" not in working.columns:
             raise ValueError("Input frame must include a 'close' column for feature construction")
 
+        def ensure_return_feature(feature: str, *, log: bool = False) -> None:
+            period = self._extract_period(feature, prefix=("log_return_" if log else "return_"))
+            series = np.log(working["close"]) if log else working["close"]
+            transform = series.diff if log else series.pct_change
+            working[feature] = transform(periods=period)
+
+        def ensure_lag_feature(feature: str) -> None:
+            period = self._extract_period(feature, prefix="lag_")
+            working[feature] = working["close"].shift(periods=period)
+
+        def ensure_ema_feature(feature: str) -> None:
+            period = self._extract_period(feature, prefix="ema_")
+            working[feature] = working["close"].ewm(span=period, adjust=False).mean()
+
+        def ensure_rsi_feature(feature: str) -> None:
+            window = self._extract_period(feature, prefix="rsi_")
+            delta = working["close"].diff()
+            gain = delta.clip(lower=0)
+            loss = -delta.clip(upper=0)
+            avg_gain = gain.ewm(alpha=1 / window, min_periods=window).mean()
+            avg_loss = loss.ewm(alpha=1 / window, min_periods=window).mean()
+            rs = avg_gain / avg_loss.replace(0, np.nan)
+            working[feature] = 100 - (100 / (1 + rs))
+
+        def ensure_volatility_feature(feature: str) -> None:
+            window = self._extract_period(feature, prefix="volatility_")
+            if "log_return_1" not in working.columns:
+                ensure_return_feature("log_return_1", log=True)
+            working[feature] = working["log_return_1"].rolling(window=window).std()
+
+        def ensure_atr_feature(feature: str) -> None:
+            window = self._extract_period(feature, prefix="atr_")
+            for base_col in ("high", "low"):
+                if base_col not in working.columns:
+                    raise ValueError(
+                        f"Feature column '{feature}' requires '{base_col}' values in the input frame"
+                    )
+            prev_close = working["close"].shift(1)
+            ranges = pd.concat(
+                [
+                    working["high"] - working["low"],
+                    (working["high"] - prev_close).abs(),
+                    (working["low"] - prev_close).abs(),
+                ],
+                axis=1,
+            )
+            true_range = ranges.max(axis=1)
+            working[feature] = true_range.rolling(window=window).mean()
+
+        def ensure_volume_zscore_feature(feature: str) -> None:
+            window = self._extract_period(feature, prefix="volume_zscore_")
+            if "volume" not in working.columns:
+                raise ValueError(
+                    f"Feature column '{feature}' requires a 'volume' column in the input frame"
+                )
+            rolling_mean = working["volume"].rolling(window).mean()
+            rolling_std = working["volume"].rolling(window).std()
+            working[feature] = (working["volume"] - rolling_mean) / rolling_std
+
         for column in self.feature_columns:
             if column in working.columns:
                 continue
 
             if column.startswith("return_"):
-                period = self._extract_period(column, prefix="return_")
-                working[column] = working["close"].pct_change(periods=period)
+                ensure_return_feature(column)
                 continue
 
             if column.startswith("log_return_"):
-                period = self._extract_period(column, prefix="log_return_")
-                working[column] = np.log(working["close"]).diff(periods=period)
+                ensure_lag_feature(column, log=True)
+                continue
+
+            if column.startswith("lag_"):
+                ensure_lag_feature(column)
+                continue
+
+            if column.startswith("ema_"):
+                ensure_ema_feature(column)
+                continue
+
+            if column == "ema_ratio":
+                if "ema_12" not in working.columns:
+                    ensure_ema_feature("ema_12")
+                if "ema_26" not in working.columns:
+                    ensure_ema_feature("ema_26")
+                working[column] = working["ema_12"] / working["ema_26"] - 1
+                continue
+
+            if column.startswith("rsi_"):
+                ensure_rsi_feature(column)
+                continue
+
+            if column.startswith("volatility_"):
+                ensure_volatility_feature(column)
+                continue
+
+            if column.startswith("atr_"):
+                ensure_atr_feature(column)
+                continue
+
+            if column.startswith("volume_zscore_"):
+                ensure_volume_zscore_feature(column)
                 continue
 
             raise ValueError(
@@ -121,8 +210,8 @@ class NeuralPricePredictor:
     @staticmethod
     def _extract_period(feature_name: str, *, prefix: str) -> int:
         try:
-            return int(feature_name.split("_")[1])
-        except (IndexError, ValueError) as exc:
+            return int(feature_name[len(prefix) :])
+        except ValueError as exc:
             raise ValueError(
                 f"Return feature '{feature_name}' must follow the pattern '{prefix}<period>'"
             ) from exc
@@ -134,10 +223,13 @@ class NeuralPricePredictor:
         for column in self.feature_columns:
             if column.startswith("return_"):
                 period = self._extract_period(column, prefix="return_")
-                frame[column] = series.pct_change(period=period)
+                frame[column] = series.pct_change(periods=period)
             elif column.startswith("log_return_"):
                 period = self._extract_period(column, prefix="log_return_")
                 frame[column] = np.log(series).diff(periods=period)
+            elif column.startswith("lag_"):
+                period = self._extract_period(column, prefix="lag_")
+                frame[column] = series.shift(periods=period)
 
         frame.index = pd.RangeIndex(len(frame))
         return self.prepare_feature_frame(frame)

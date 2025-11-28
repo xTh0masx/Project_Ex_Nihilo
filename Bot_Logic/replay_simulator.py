@@ -59,16 +59,24 @@ class HistoricalPriceStreamer:
     """Iterate through a date-bounded slice of OHLCV data one candle at a time."""
 
     def __init__(self, frame: pd.DataFrame, start: datetime, end: datetime) -> None:
-        if "close" not in frame.columns:
-            raise ValueError("Input frame must contain a 'close' column")
+        """Prepare a time-bounded view of historical prices.
 
-        bounded = frame.loc[start:end]
-        if bounded.empty:
+        The slice is assigend to ''self.frame'' immediatley so downstream attributes exist even if
+        validation fails, which avoids partially constructed objects throwing attribute errors in the
+        dashboard.
+        """
+
+        # Materialize the slice early to guarantee ''self.frame'' exists.
+        self.frame = frame.loc[start:end].sort_index()
+
+        if self.frame.empty:
             raise ValueError(
                 f"No price data available between {start!s} and {end!s}; got empty slice"
             )
 
-        self.series = bounded.sort_index()
+        if "close" not in self.frame.columns:
+            raise ValueError("Input frame must contain a 'close' column")
+
         self.series = self.frame["close"].astype("float")
 
 
