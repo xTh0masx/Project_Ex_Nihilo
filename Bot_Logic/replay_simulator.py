@@ -68,7 +68,9 @@ class HistoricalPriceStreamer:
                 f"No price data available between {start!s} and {end!s}; got empty slice"
             )
 
-        self.series = bounded["close"].astype(float)
+        self.series = bounded.sort_index()
+        self.series = self.frame["close"].astype("float")
+
 
     def stream(self, delay_seconds: float = 0.0) -> Iterable[ReplayCandle]:
         """Yield one candle at a time, optionally pausing between steps."""
@@ -103,15 +105,17 @@ class NeuralReplayTrader:
         """Run the replay loop until the stream is exhausted."""
 
         price_history: List[float] = []
+        feature_frame = self.predictor.prepare_feature_frame(streamer.frame)
         trades: List[ReplayTrade] = []
         active_trade: Optional[ReplayTrade] = None
 
-        for bar in streamer.stream(delay_seconds=delay_seconds):
+        for idx, bar in enumerate(streamer.stream(delay_seconds=delay_seconds)):
             price_history.append(bar.close)
             prediction: Optional[float] = None
 
-            if len(price_history) >= self.predictor.lookback:
-                prediction = self.predictor.predict_from_prices(price_history)
+            if idx + 1 >= self.predictor.lookback:
+                window = feature_frame.iloc[: idx + 1]
+                prediction = self.predictor.predict_next_return(window)
 
             if active_trade is None:
                 if prediction is not None and prediction >= self.entry_threshold:

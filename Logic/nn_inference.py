@@ -86,28 +86,61 @@ class NeuralPricePredictor:
             raise ValueError(
                 f"Feature columns {missing} missing from provided dataframe; expected {self.feature_columns}"
             )
-        return frame[self.feature_columns]
+        sanitized = frame[self.feature_columns].copy()
+        sanitized.replace([np.inf, -np.inf], np.nan, inplace=True)
+        sanitized.fillna(0.0, inplace=True)
+        return sanitized
+
+    def prepare_feature_frame(self, frame: pd.DataFrame) -> pd.DataFrame:
+        """Ensure all configured features are present, deriving returns when needed."""
+
+        working = frame.copy()
+        if "close" not in working.columns:
+            raise ValueError("Input frame must include a 'close' column for feature construction")
+
+        for column in self.feature_columns:
+            if column in working.columns:
+                continue
+
+            if column.startswith("return_"):
+                period = self._extract_period(column, prefix="return_")
+                working[column] = working["close"].pct_change(periods=period)
+                continue
+
+            if column.startswith("log_return_"):
+                period = self._extract_period(column, prefix="log_return_")
+                working[column] = np.log(working["close"]).diff(periods=period)
+                continue
+
+            raise ValueError(
+                f"Feature column '{column}' missing from provided dataframe; cannot infer its values"
+            )
+
+        return self._ensure_feature_frame(working)
+
+    @staticmethod
+    def _extract_period(feature_name: str, *, prefix: str) -> int:
+        try:
+            return int(feature_name.split("_")[1])
+        except (IndexError, ValueError) as exc:
+            raise ValueError(
+                f"Return feature '{feature_name}' must follow the pattern '{prefix}<period>'"
+            ) from exc
 
     def _features_from_prices(self, prices: Iterable[float]) -> pd.DataFrame:
         series = pd.Series(list(prices), dtype=float)
-        data = {}
-
-        if "close" in self.feature_columns:
-            data["close"] = series
+        frame = pd.DataFrame({"close": series})
 
         for column in self.feature_columns:
             if column.startswith("return_"):
-                try:
-                    period = int(column.split("_")[1])
-                except (IndexError, ValueError) as exc:
-                    raise ValueError(
-                        f"Return feature '{column}' must follow the pattern 'return_<period>'"
-                    ) from exc
-                data[column] = series.pct_change(periods=period).fillna(0.0)
+                period = self._extract_period(column, prefix="return_")
+                frame[column] = series.pct_change(period=period)
+            elif column.startswith("log_return_"):
+                period = self._extract_period(column, prefix="log_return_")
+                frame[column] = np.log(series).diff(periods=period)
 
-        frame = pd.DataFrame(data)
         frame.index = pd.RangeIndex(len(frame))
-        return self._ensure_feature_frame(frame)
+        return self.prepare_feature_frame(frame)
 
     def _predict_tensor(self, features: np.ndarray) -> float:
         tensor = torch.from_numpy(features.astype(np.float32)).unsqueeze(0)
