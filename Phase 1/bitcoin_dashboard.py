@@ -625,7 +625,7 @@ def render_neural_replay(start_ts: pd.Timestamp, end_ts: pd.Timestamp) -> None:
         return
 
     dafault_model_dir = PROJECT_ROOT / "models" / "btc_usd"
-    model_input = st.text_input("Model drectory", str(dafault_model_dir))
+    model_input = st.text_input("Model directory", str(dafault_model_dir))
     model_dir = Path(model_input)
     if not model_dir.exists():
         model_dir = PROJECT_ROOT / model_dir
