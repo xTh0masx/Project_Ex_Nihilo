@@ -551,7 +551,7 @@ def _get_trading_runner() -> TradingBotRunner | None:
 
     return runner
 
-def render_candlestick(frame: pd.DataFrame, trades: pd.DataFrame, title: str) -> None:
+def render_candlestick(frame: pd.DataFrame, trades: pd.DataFrame, title: str, *, key: str | None = None,) -> None:
     """Render a candlestick chart with optional trade markers."""
 
     fig = go.Figure(
@@ -601,7 +601,7 @@ def render_candlestick(frame: pd.DataFrame, trades: pd.DataFrame, title: str) ->
         margin=dict(l=10, r=10, t=60, b=10),
     )
 
-    st.plotly_chart(fig, width="stretch")
+    st.plotly_chart(fig, width="stretch", key=key)
 
 def render_neural_replay(start_ts: pd.Timestamp, end_ts: pd.Timestamp) -> None:
     """Allow users to replay a historical window with neural guidance.
@@ -697,6 +697,7 @@ def render_neural_replay(start_ts: pd.Timestamp, end_ts: pd.Timestamp) -> None:
                     frame_slice.iloc[:completed],
                     replay_frame_live,
                     "Live replay progress",
+                    key="neural-replay-live",
                 )
             if not replay_frame_live.empty:
                 table_placeholder.dataframe(
@@ -725,7 +726,7 @@ def render_neural_replay(start_ts: pd.Timestamp, end_ts: pd.Timestamp) -> None:
         st.metric("Total PnL (approx, USD)", f"${total_pnl_usd:,.2f}")
 
         with chart_placeholder.container():
-            render_candlestick(frame_slice, replay_frame, "Replay candles with neural trades")
+            render_candlestick(frame_slice, replay_frame, "Replay candles with neural trades", key="neural-replay-summary",)
         if replay_frame.empty:
             table_placeholder.info("No trades were opened during this replay window.")
         else:
@@ -891,7 +892,7 @@ def main():  # pragma: no cover - Streamlit entrypoint
     )
 
     render_summary(frame_slice)
-    render_candlestick(frame_slice, trades_slice, f"BTC-USD – {dataset} candles")
+    render_candlestick(frame_slice, trades_slice, f"BTC-USD – {dataset} candles", key=f"candles-{dataset.lower()}",)
 
     tab_data, tab_trades = st.tabs(["Data preview", "Trades"])
     with tab_data:
