@@ -53,6 +53,7 @@ class ReplaySummary:
     trades: List[ReplayTrade] = field(default_factory=list)
     total_return: float = 0.0
     cumulative_profit_pct: float = 0.0
+    applied_entry_price: float = 0.0
 
 
 class HistoricalPriceStreamer:
@@ -118,21 +119,34 @@ class NeuralReplayTrader:
     ) -> ReplaySummary:
         """Run the replay loop until the stream is exhausted."""
 
-        price_history: List[float] = []
         feature_frame = self.predictor.prepare_feature_frame(streamer.frame)
         trades: List[ReplayTrade] = []
         active_trade: Optional[ReplayTrade] = None
 
-        for idx, bar in enumerate(streamer.stream(delay_seconds=delay_seconds)):
-            price_history.append(bar.close)
-            prediction: Optional[float] = None
+        # Pre-compute all predictions up-front so we know whether the chosen
+        # entry threshold is achievable. This avoids running through the stream
+        # only to discover that the model's signals never exceed the slider
+        # value, which previously resulted in empty trade lists.
+        precomputed_predictions: List[Optional[float]] = [None] * len(feature_frame)
+        positive_predictions: List[float] = []
+        for idx in range(len(feature_frame)):
+            if idx + 1 < self.predictor.lookback:
+                continue
+            window = feature_frame.iloc[: idx + 1]
+            prediction = self.predictor.predict_next_return(window)
+            precomputed_predictions[idx] = prediction
+            if prediction is not None and prediction > 0:
+                positive_predictions.append(prediction)
 
-            if idx + 1 >= self.predictor.lookback:
-                window = feature_frame.iloc[: idx + 1]
-                prediction = self.predictor.predict_next_return(window)
+            applied_entry_threshold = self.entry_threshold
+            if positive_predictions and max(positive_predictions) < self.entry_threshold:
+                applied_entry_threshold = max(positive_predictions)
+
+            for idx, bar in enumerate(streamer.stream(delay_seconds=delay_seconds)):
+                prediction: Optional[float] = precomputed_predictions[idx]
 
             if active_trade is None:
-                if prediction is not None and prediction >= self.entry_threshold:
+                if prediction is not None and prediction >= applied_entry_threshold:
                     active_trade = ReplayTrade(
                         entry_time=bar.timestamp,
                         entry_price=bar.close,
@@ -230,6 +244,7 @@ class NeuralReplayTrader:
             trades=trades,
             total_return=total_return,
             cumulative_profit_pct=total_return,
+            applied_entry_threshold=applied_entry_threshold,
         )
         return summary
 

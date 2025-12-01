@@ -708,6 +708,13 @@ def render_neural_replay(start_ts: pd.Timestamp, end_ts: pd.Timestamp) -> None:
         )
         replay_frame = _replay_trades_to_frame(summary.trades)
 
+        if summary.applied_entry_threshold < entry_threshold:
+            st.info(
+                "Model signals were weaker than the requested entry filter; "
+                f"the bot lowered the threshold to {summary.applied_entry_threshold * 100:.3f}% "
+                "so that qualifying trades could still be executed."
+            )
+
         progress_bar.progress(100)
         status_placeholder.success("Replay complete")
 
