@@ -167,7 +167,7 @@ class NeuralReplayTrader:
                         exit_price=None,
                         status="open",
                         profit_pct=None,
-                        bars_held=0,
+                        bars_held=1,
                         quantity=quantity,
                         capital_used=quantity * bar.close,
                         model_prediction=prediction,

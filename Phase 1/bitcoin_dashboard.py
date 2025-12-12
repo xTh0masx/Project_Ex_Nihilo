@@ -690,7 +690,7 @@ def render_neural_replay(start_ts: pd.Timestamp, end_ts: pd.Timestamp) -> None:
         return
 
     total_candles = len(frame_slice)
-    default_max_bars = min(50, total_candles)
+    default_max_bars = min(50, max(5, total_candles // 4 or 1))
 
     dafault_model_dir = PROJECT_ROOT / "models" / "btc_usd"
     model_input = st.text_input("Model directory", str(dafault_model_dir))
@@ -754,7 +754,6 @@ def render_neural_replay(start_ts: pd.Timestamp, end_ts: pd.Timestamp) -> None:
     if st.button("Run neural replay", width="stretch"):
         run_id = st.session_state.get("neural_replay_run_id", 0) + 1
         st.session_state["neural_replay_run_id"] = run_id
-        total_candles = len(frame_slice)
         render_every = max(1, total_candles // 120)
 
         def _on_step(idx, candle, trades, active_trade, prediction):
