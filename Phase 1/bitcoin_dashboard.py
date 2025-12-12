@@ -122,6 +122,8 @@ class TradingBotRunner:
         self.strategy = SpotProfitStopStrategy()
         self.last_timestamp: pd.Timestamp | None = None
         self.entry_price: float | None = None
+        self.position_opened_at: pd.Timestamp | None = None
+        self.position_opened_at: pd.Timestamp | None = None
         self.trade_count = 0
         self.last_error: str | None = None
         self.last_loop_started_at: datetime | None = None
@@ -211,7 +213,7 @@ class TradingBotRunner:
         self.last_timestamp = timestamp
 
         if self.entry_price is None:
-            self.entry_price = price
+            self._open_position(price, timestamp)
             return
 
         action = self.strategy.evaluate(self.entry_price, price)
@@ -220,9 +222,9 @@ class TradingBotRunner:
 
         side = "SELL" if action is Action.TAKE_PROFIT else "STOP"
         pnl = price - self.entry_price
-        self._record_trade(timestamp, side, price, self.entry_price, price, pnl)
-        self.entry_price = price
-        self.trade_count += 1
+        executed_at = datetime.now()
+        self._record_trade(executed_at, side, price, self.entry_price, price, pnl)
+        self._open_position(price, executed_at)
 
     def _record_trade(
         self,
@@ -254,8 +256,14 @@ class TradingBotRunner:
                 },
             )
 
+        self.trade_count += 1
         load_trades.clear()
 
+    def _open_position(self, price: float, timestamp: pd.Timestamp) -> None:
+        """Mark a new position as opened at the given price and time."""
+
+        self.entry_price = price
+        self.position_opened_at = timestamp
 
 DATASETS = {
     "Minute": {
