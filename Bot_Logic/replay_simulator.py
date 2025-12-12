@@ -103,12 +103,14 @@ class NeuralReplayTrader:
         entry_threshold: float = 0.001,
         prediction_exit_threshold: float = 0.002,
         trade_capital_usd: float = 1000.0,
+        max_bars_held: Optional[int] = None,
     ) -> None:
         self.predictor = predictor
         self.strategy = strategy or SpotProfitStopStrategy()
         self.entry_threshold = entry_threshold
         self.prediction_exit_threshold = prediction_exit_threshold
         self.trade_capital_usd = trade_capital_usd
+        self.max_bars_held = max_bars_held
 
     def simulate(
         self,
@@ -177,6 +179,27 @@ class NeuralReplayTrader:
             # Manage an existing position
             active_trade.bars_held += 1
             current_profit = (bar.close / active_trade.entry_price) - 1
+
+            if self.max_bars_held is not None and active_trade.bars_held >= self.max_bars_held:
+                trades.append(
+                    ReplayTrade(
+                        entry_time=active_trade.entry_time,
+                        entry_price=active_trade.entry_price,
+                        exit_time=bar.timestamp,
+                        exit_price=bar.close,
+                        status="timeout_exit",
+                        profit_pct=current_profit,
+                        bars_held=active_trade.bars_held,
+                        quantity=active_trade.quantity,
+                        capital_used=active_trade.capital_used,
+                        profit_usd=current_profit * active_trade.capital_used,
+                        model_prediction=prediction,
+                    )
+                )
+                active_trade = None
+                if on_step is not None:
+                    on_step(idx, bar, trades, active_trade, prediction)
+                continue
 
             if prediction is not None:
                 active_trade.model_prediction = prediction
@@ -286,6 +309,7 @@ def simulate_date_window(
     delay_seconds: float = 0.0,
     entry_threshold: float = 0.001,
     prediction_exit_threshold: float = 0.002,
+    max_bars_held: Optional[int] = None,
 ) -> ReplaySummary:
     """Convenience wrapper to run a full replay given a date range and model."""
 
@@ -295,5 +319,6 @@ def simulate_date_window(
         predictor,
         entry_threshold=entry_threshold,
         prediction_exit_threshold=prediction_exit_threshold,
+        max_bars_held=max_bars_held,
     )
     return trader.simulate(streamer, delay_seconds=delay_seconds)
