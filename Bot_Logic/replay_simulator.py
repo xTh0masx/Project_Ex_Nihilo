@@ -43,6 +43,9 @@ class ReplayTrade:
     status: str
     profit_pct: Optional[float]
     bars_held: int
+    quantity: float
+    capital_used: float
+    profit_usd: Optional[float] = None
     model_prediction: Optional[float] = None
 
 
@@ -53,7 +56,7 @@ class ReplaySummary:
     trades: List[ReplayTrade] = field(default_factory=list)
     total_return: float = 0.0
     cumulative_profit_pct: float = 0.0
-    applied_entry_price: float = 0.0
+    applied_entry_threshold: float = 0.0
 
 
 class HistoricalPriceStreamer:
@@ -99,11 +102,13 @@ class NeuralReplayTrader:
         strategy: Optional[SpotProfitStopStrategy] = None,
         entry_threshold: float = 0.001,
         prediction_exit_threshold: float = 0.002,
+        trade_capital_usd: float = 1000.0,
     ) -> None:
         self.predictor = predictor
         self.strategy = strategy or SpotProfitStopStrategy()
         self.entry_threshold = entry_threshold
         self.prediction_exit_threshold = prediction_exit_threshold
+        self.trade_capital_usd = trade_capital_usd
 
     def simulate(
         self,
@@ -147,6 +152,7 @@ class NeuralReplayTrader:
 
             if active_trade is None:
                 if prediction is not None and prediction >= applied_entry_threshold:
+                    quantity = self.trade_capital_usd / bar.close if bar.close else 0.0
                     active_trade = ReplayTrade(
                         entry_time=bar.timestamp,
                         entry_price=bar.close,
@@ -155,6 +161,8 @@ class NeuralReplayTrader:
                         status="open",
                         profit_pct=None,
                         bars_held=0,
+                        quantity=quantity,
+                        capital_used=quantity * bar.close,
                         model_prediction=prediction,
                     )
                 if on_step is not None:
@@ -177,6 +185,9 @@ class NeuralReplayTrader:
                             status="model_exit",
                             profit_pct=current_profit,
                             bars_held=active_trade.bars_held,
+                            quantity=active_trade.quantity,
+                            capital_used=active_trade.capital_used,
+                            profit_usd=active_trade.profit_usd,
                             model_prediction=prediction,
                         )
                     )
@@ -196,6 +207,9 @@ class NeuralReplayTrader:
                         status="profit_target",
                         profit_pct=current_profit,
                         bars_held=active_trade.bars_held,
+                        quantity=active_trade.quantity,
+                        capital_used=active_trade.capital_used,
+                        profit_usd=active_trade.profit_usd,
                         model_prediction=prediction,
                     )
                 )
@@ -214,6 +228,9 @@ class NeuralReplayTrader:
                         status="stop_loss",
                         profit_pct=current_profit,
                         bars_held=active_trade.bars_held,
+                        quantity=active_trade.quantity,
+                        capital_used=active_trade.capital_used,
+                        profit_usd=active_trade.profit_usd,
                         model_prediction=prediction,
                     )
                 )
@@ -235,6 +252,12 @@ class NeuralReplayTrader:
                     status="incomplete",
                     profit_pct=(streamer.series.iloc[-1] / active_trade.entry_price) - 1,
                     bars_held=active_trade.bars_held,
+                    quantity=active_trade.quantity,
+                    capital_used=active_trade.capital_used,
+                    profit_usd=(
+                            ((streamer.series.iloc[-1] / active_trade.entry_price) - 1)
+                            * active_trade.capital_used
+                    ),
                     model_prediction=active_trade.model_prediction,
                 )
             )

@@ -495,13 +495,19 @@ def _replay_trades_to_frame(trades: List) -> pd.DataFrame:
     for trade in trades:
         profit_pct = trade.profit_pct or 0.0
         exit_price = trade.exit_price if trade.exit_price is not None else trade.entry_price
-        pnl_usd = profit_pct * trade.entry_price
+        pnl_usd = (
+            trade.profit_usd
+            if trade.profit_usd is not None
+            else profit_pct * getattr(trade, "capital_used", trade.entry_price)
+        )
         rows.append(
             {
                 "timestamp": trade.exit_time or trade.entry_time,
                 "entry_time": trade.entry_time,
                 "exit_time": trade.exit_time,
                 "side": "buy",
+                "quantity": getattr(trade, "quantity", 1.0),
+                "capital_used": getattr(trade, "capital_used", trade.entry_price),
                 "entry_price": trade.entry_price,
                 "exit_price": exit_price,
                 "status": trade.status,
@@ -514,6 +520,50 @@ def _replay_trades_to_frame(trades: List) -> pd.DataFrame:
     frame = pd.DataFrame(rows)
     frame.sort_values("timestamp", inplace=True)
     return frame
+
+def _build_trade_ledger(trades: pd.DataFrame) -> pd.DataFrame:
+    """Create a tab-friendly ledger with capital and sizing details."""
+
+    if trades.empty:
+        return trades
+
+    ledger = trades.copy()
+    ledger["timestamp"] = ledger["exit_time"].fillna(ledger["entry_time"])
+    ledger["units"] = ledger.get("quantity", 1.0)
+    ledger["used_capital"] = ledger.get("capital_used", ledger["entry_price"])
+    ledger["pnl_usd"] = ledger.get(
+        "pnl_usd", ledger.get("pnl_pct", 0.0) / 100 * ledger["used_capital"]
+    )
+
+    columns = [
+        "timestamp",
+        "side",
+        "units",
+        "entry_price",
+        "exit_price",
+        "pnl_usd",
+        "used_capital",
+    ]
+
+    return ledger[columns]
+
+
+def _render_replay_tables(table_placeholder, trades: pd.DataFrame) -> None:
+    """Render both the raw trade feed and the capital-aware ledger."""
+
+    with table_placeholder.container():
+        if trades.empty:
+            st.info("No trades were opened during this replay window.")
+            return
+
+        ledger_frame = _build_trade_ledger(trades)
+        trades_tab, ledger_tab = st.tabs(["Trades", "Trade ledger"])
+        trades_tab.dataframe(trades.tail(200), hide_index=True, width="stretch")
+
+        if ledger_frame.empty:
+            ledger_tab.info("No closed trades recorded during this replay window.")
+        else:
+            ledger_tab.dataframe(ledger_frame.tail(200), hide_index=True, width="stretch")
 
 def _split_trades_by_side(trades: pd.DataFrame) -> Dict[str, pd.DataFrame]:
     side_series = trades.get("side")
@@ -637,6 +687,9 @@ def render_neural_replay(start_ts: pd.Timestamp, end_ts: pd.Timestamp) -> None:
         model_dir = PROJECT_ROOT / model_dir
     entry_threshold = st.slider("Prediction to enter (return %)", 0.05, 2.0, 0.1, step=0.05) / 100
     exit_threshold = st.slider("Prediction to force-exit (return %)", 0.05, 2.0, 0.2, step=0.05) / 100
+    trade_capital = st.number_input(
+        "Capital per trade (USD)", value=1000.0, min_value=10.0, step=100.0
+    )
     delay_seconds = st.number_input("Seconds per candle (visual replay pacing)", value=1.0, min_value=0.0, step=0.5)
 
     if not model_dir.exists():
@@ -659,6 +712,7 @@ def render_neural_replay(start_ts: pd.Timestamp, end_ts: pd.Timestamp) -> None:
         predictor,
         entry_threshold=entry_threshold,
         prediction_exit_threshold=exit_threshold,
+        trade_capital_usd=trade_capital,
     )
 
     st.caption(
@@ -699,10 +753,8 @@ def render_neural_replay(start_ts: pd.Timestamp, end_ts: pd.Timestamp) -> None:
                     "Live replay progress",
                     key="neural-replay-live",
                 )
-            if not replay_frame_live.empty:
-                table_placeholder.dataframe(
-                    replay_frame_live.tail(200), hide_index=True, width="stretch"
-                )
+
+            _render_replay_tables(table_placeholder, replay_frame_live)
 
         summary = trader.simulate(
             streamer, delay_seconds=delay_seconds, on_step=_on_step
@@ -727,12 +779,7 @@ def render_neural_replay(start_ts: pd.Timestamp, end_ts: pd.Timestamp) -> None:
 
         with chart_placeholder.container():
             render_candlestick(frame_slice, replay_frame, "Replay candles with neural trades", key="neural-replay-summary",)
-        if replay_frame.empty:
-            table_placeholder.info("No trades were opened during this replay window.")
-        else:
-            table_placeholder.dataframe(replay_frame, hide_index=True, width="stretch")
-
-
+        _render_replay_tables(table_placeholder, replay_frame)
 
 def render_summary(frame: pd.DataFrame) -> None:
     """Display quick statistics for the selected data slice."""
