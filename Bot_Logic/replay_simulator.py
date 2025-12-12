@@ -83,7 +83,6 @@ class HistoricalPriceStreamer:
 
         self.series = self.frame["close"].astype("float")
 
-
     def stream(self, delay_seconds: float = 0.0) -> Iterable[ReplayCandle]:
         """Yield one candle at a time, optionally pausing between steps."""
 
@@ -128,6 +127,8 @@ class NeuralReplayTrader:
         trades: List[ReplayTrade] = []
         active_trade: Optional[ReplayTrade] = None
 
+        applied_entry_threshold = self.entry_threshold
+
         # Pre-compute all predictions up-front so we know whether the chosen
         # entry threshold is achievable. This avoids running through the stream
         # only to discover that the model's signals never exceed the slider
@@ -143,12 +144,11 @@ class NeuralReplayTrader:
             if prediction is not None and prediction > 0:
                 positive_predictions.append(prediction)
 
-            applied_entry_threshold = self.entry_threshold
-            if positive_predictions and max(positive_predictions) < self.entry_threshold:
-                applied_entry_threshold = max(positive_predictions)
+        if positive_predictions and max(positive_predictions) < self.entry_threshold:
+            applied_entry_threshold = max(positive_predictions)
 
-            for idx, bar in enumerate(streamer.stream(delay_seconds=delay_seconds)):
-                prediction: Optional[float] = precomputed_predictions[idx]
+        for idx, bar in enumerate(streamer.stream(delay_seconds=delay_seconds)):
+            prediction: Optional[float] = precomputed_predictions[idx]
 
             if active_trade is None:
                 if prediction is not None and prediction >= applied_entry_threshold:
@@ -187,7 +187,7 @@ class NeuralReplayTrader:
                             bars_held=active_trade.bars_held,
                             quantity=active_trade.quantity,
                             capital_used=active_trade.capital_used,
-                            profit_usd=active_trade.profit_usd,
+                            profit_usd=current_profit * active_trade.capital_used,
                             model_prediction=prediction,
                         )
                     )
@@ -209,7 +209,7 @@ class NeuralReplayTrader:
                         bars_held=active_trade.bars_held,
                         quantity=active_trade.quantity,
                         capital_used=active_trade.capital_used,
-                        profit_usd=active_trade.profit_usd,
+                        profit_usd=current_profit * active_trade.capital_used,
                         model_prediction=prediction,
                     )
                 )
@@ -230,7 +230,7 @@ class NeuralReplayTrader:
                         bars_held=active_trade.bars_held,
                         quantity=active_trade.quantity,
                         capital_used=active_trade.capital_used,
-                        profit_usd=active_trade.profit_usd,
+                        profit_usd=current_profit * active_trade.capital_used,
                         model_prediction=prediction,
                     )
                 )
@@ -255,8 +255,8 @@ class NeuralReplayTrader:
                     quantity=active_trade.quantity,
                     capital_used=active_trade.capital_used,
                     profit_usd=(
-                            ((streamer.series.iloc[-1] / active_trade.entry_price) - 1)
-                            * active_trade.capital_used
+                        ((streamer.series.iloc[-1] / active_trade.entry_price) - 1)
+                        * active_trade.capital_used
                     ),
                     model_prediction=active_trade.model_prediction,
                 )
