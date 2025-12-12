@@ -699,6 +699,14 @@ def render_neural_replay(start_ts: pd.Timestamp, end_ts: pd.Timestamp) -> None:
     trade_capital = st.number_input(
         "Capital per trade (USD)", value=1000.0, min_value=10.0, step=100.0
     )
+    max_bars_held = int(
+        st.number_input(
+            "Max candles per trade (0 disables the cap)",
+            value=500,
+            min_value=0,
+            step=50,
+        )
+    )
     delay_seconds = st.number_input("Seconds per candle (visual replay pacing)", value=1.0, min_value=0.0, step=0.5)
 
     if not model_dir.exists():
@@ -722,6 +730,7 @@ def render_neural_replay(start_ts: pd.Timestamp, end_ts: pd.Timestamp) -> None:
         entry_threshold=entry_threshold,
         prediction_exit_threshold=exit_threshold,
         trade_capital_usd=trade_capital,
+        max_bars_held=None if max_bars_held == 0 else max_bars_held,
     )
 
     st.caption(
