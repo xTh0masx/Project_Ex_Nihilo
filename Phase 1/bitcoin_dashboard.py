@@ -689,6 +689,9 @@ def render_neural_replay(start_ts: pd.Timestamp, end_ts: pd.Timestamp) -> None:
         st.info("No minute-level data available in the selected window.")
         return
 
+    total_candles = len(frame_slice)
+    default_max_bars = min(50, total_candles)
+
     dafault_model_dir = PROJECT_ROOT / "models" / "btc_usd"
     model_input = st.text_input("Model directory", str(dafault_model_dir))
     model_dir = Path(model_input)
@@ -702,9 +705,13 @@ def render_neural_replay(start_ts: pd.Timestamp, end_ts: pd.Timestamp) -> None:
     max_bars_held = int(
         st.number_input(
             "Max candles per trade (0 disables the cap)",
-            value=500,
+            value=int(default_max_bars),
             min_value=0,
-            step=50,
+            step=10,
+            help=(
+                "Positions close sooner by default to allow multiple trades in a replay. "
+                "Lower values force more frequent exits; set to 0 to disable the cap."
+            ),
         )
     )
     delay_seconds = st.number_input("Seconds per candle (visual replay pacing)", value=1.0, min_value=0.0, step=0.5)
@@ -725,12 +732,13 @@ def render_neural_replay(start_ts: pd.Timestamp, end_ts: pd.Timestamp) -> None:
         return
 
     streamer = HistoricalPriceStreamer(frame_slice, start=start_ts, end=end_ts)
+    effective_max_bars = None if max_bars_held == 0 else min(max_bars_held, total_candles)
     trader = NeuralReplayTrader(
         predictor,
         entry_threshold=entry_threshold,
         prediction_exit_threshold=exit_threshold,
         trade_capital_usd=trade_capital,
-        max_bars_held=None if max_bars_held == 0 else max_bars_held,
+        max_bars_held=effective_max_bars,
     )
 
     st.caption(
