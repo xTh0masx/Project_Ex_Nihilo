@@ -152,9 +152,6 @@ class NeuralReplayTrader:
             adaptive_entry_threshold = float(np.percentile(positive_predictions, 25))
             applied_entry_threshold = min(self.entry_threshold, adaptive_entry_threshold)
 
-        if positive_predictions and max(positive_predictions) < self.entry_threshold:
-            applied_entry_threshold = max(positive_predictions)
-
         for idx, bar in enumerate(streamer.stream(delay_seconds=delay_seconds)):
             prediction: Optional[float] = precomputed_predictions[idx]
 
