@@ -14,6 +14,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable, Iterable, List, Optional
 
+import numpy as np
 import pandas as pd
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
@@ -128,6 +129,7 @@ class NeuralReplayTrader:
         active_trade: Optional[ReplayTrade] = None
 
         applied_entry_threshold = self.entry_threshold
+        adaptive_entry_threshold: Optional[float] = None
 
         # Pre-compute all predictions up-front so we know whether the chosen
         # entry threshold is achievable. This avoids running through the stream
@@ -143,6 +145,12 @@ class NeuralReplayTrader:
             precomputed_predictions[idx] = prediction
             if prediction is not None and prediction > 0:
                 positive_predictions.append(prediction)
+
+        if positive_predictions:
+            # Aim for more frequent trades by relaxing the requested entry filter
+            # down to the 25th percentile of positive predictions when necessary.
+            adaptive_entry_threshold = float(np.percentile(positive_predictions, 25))
+            applied_entry_threshold = min(self.entry_threshold, adaptive_entry_threshold)
 
         if positive_predictions and max(positive_predictions) < self.entry_threshold:
             applied_entry_threshold = max(positive_predictions)

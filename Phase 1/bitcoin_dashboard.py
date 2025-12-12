@@ -18,6 +18,7 @@ from sqlalchemy.exc import SQLAlchemyError
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
+from streamlit.delta_generator import DeltaGenerator
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
@@ -601,7 +602,14 @@ def _get_trading_runner() -> TradingBotRunner | None:
 
     return runner
 
-def render_candlestick(frame: pd.DataFrame, trades: pd.DataFrame, title: str, *, key: str | None = None,) -> None:
+def render_candlestick(
+    frame: pd.DataFrame,
+    trades: pd.DataFrame,
+    title: str,
+    *,
+    key: str | None = None,
+    target: DeltaGenerator | None = None,
+) -> None:
     """Render a candlestick chart with optional trade markers."""
 
     fig = go.Figure(
@@ -651,7 +659,8 @@ def render_candlestick(frame: pd.DataFrame, trades: pd.DataFrame, title: str, *,
         margin=dict(l=10, r=10, t=60, b=10),
     )
 
-    st.plotly_chart(fig, width="stretch", key=key)
+    plot_target = target if target is not None else st
+    plot_target.plotly_chart(fig, width="stretch", key=key)
 
 def render_neural_replay(start_ts: pd.Timestamp, end_ts: pd.Timestamp) -> None:
     """Allow users to replay a historical window with neural guidance.
@@ -726,6 +735,8 @@ def render_neural_replay(start_ts: pd.Timestamp, end_ts: pd.Timestamp) -> None:
     table_placeholder = st.empty()
 
     if st.button("Run neural replay", width="stretch"):
+        run_id = st.session_state.get("neural_replay_run_id", 0) + 1
+        st.session_state["neural_replay_run_id"] = run_id
         total_candles = len(frame_slice)
         render_every = max(1, total_candles // 120)
 
@@ -746,13 +757,13 @@ def render_neural_replay(start_ts: pd.Timestamp, end_ts: pd.Timestamp) -> None:
                 trades_to_render.append(active_trade)
 
             replay_frame_live = _replay_trades_to_frame(trades_to_render)
-            with chart_placeholder.container():
-                render_candlestick(
-                    frame_slice.iloc[:completed],
-                    replay_frame_live,
-                    "Live replay progress",
-                    key="neural-replay-live",
-                )
+            render_candlestick(
+                frame_slice.iloc[:completed],
+                replay_frame_live,
+                "Live replay progress",
+                target=chart_placeholder,
+                key=f"neural-replay-live-{run_id}-{completed}",
+            )
 
             _render_replay_tables(table_placeholder, replay_frame_live)
 
@@ -765,7 +776,7 @@ def render_neural_replay(start_ts: pd.Timestamp, end_ts: pd.Timestamp) -> None:
             st.info(
                 "Model signals were weaker than the requested entry filter; "
                 f"the bot lowered the threshold to {summary.applied_entry_threshold * 100:.3f}% "
-                "so that qualifying trades could still be executed."
+                "(25th percentile of positive predictions) to encourage moire trades in the window."
             )
 
         progress_bar.progress(100)
