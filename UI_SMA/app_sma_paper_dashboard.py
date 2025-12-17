@@ -1,4 +1,4 @@
-#streamlit run UI_SMA/app_sma_paper_dashboard.py
+#py -m streamlit run UI_SMA/app_sma_paper_dashboard.py
 
 
 from __future__ import annotations
