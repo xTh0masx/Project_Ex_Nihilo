@@ -41,10 +41,10 @@ class IntervalConfig:
 
 DB_CONFIG: Dict[str, str | int] = {
     "host": "127.0.0.1",
-    "port": 3306,
+    "port": 3307,
     "user": "root",
     "password": "Digimon@4123",
-    "database": "Ex_nihilo",
+    "database": "trading",
     "auth_plugin": "mysql_native_password",
 }
 
