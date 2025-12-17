@@ -157,6 +157,18 @@ class NeuralPricePredictor:
             rolling_std = working["volume"].rolling(window).std()
             working[feature] = (working["volume"] - rolling_mean) / rolling_std
 
+        def ensure_return_mean_feature(feature: str) -> None:
+            window = self._extract_period(feature, prefix="return_mean_")
+            if "return_1" not in working.columns:
+                ensure_return_feature("return_1")
+            working[feature] = working["return_1"].rolling(window=window).mean()
+
+        def ensure_bollinger_feature(feature: str) -> None:
+            window = self._extract_period(feature, prefix="bollinger_zscore_")
+            rolling_mean = working["close"].rolling(window=window).mean()
+            rolling_std = working["close"].rolling(window=window).std()
+            working[feature] = (working["close"] - rolling_mean) / rolling_std
+
         for column in self.feature_columns:
             if column in working.columns:
                 continue
@@ -199,6 +211,14 @@ class NeuralPricePredictor:
 
             if column.startswith("volume_zscore_"):
                 ensure_volume_zscore_feature(column)
+                continue
+
+            if column.startswith("return_mean_"):
+                ensure_return_mean_feature(column)
+                continue
+
+            if column.startswith("bollinger_zscore_"):
+                ensure_bollinger_feature(column)
                 continue
 
             raise ValueError(

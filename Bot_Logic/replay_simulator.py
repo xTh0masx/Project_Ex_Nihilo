@@ -48,6 +48,7 @@ class ReplayTrade:
     capital_used: float
     profit_usd: Optional[float] = None
     model_prediction: Optional[float] = None
+    peak_price: Optional[float] = None
 
 
 @dataclass
@@ -58,6 +59,11 @@ class ReplaySummary:
     total_return: float = 0.0
     cumulative_profit_pct: float = 0.0
     applied_entry_threshold: float = 0.0
+    total_trades: int = 0
+    win_rate: float = 0.0
+    average_holding_bars: float = 0.0
+    average_profit_pct: float = 0.0
+    average_loss_pct: float = 0.0
 
 
 class HistoricalPriceStreamer:
@@ -129,6 +135,7 @@ class NeuralReplayTrader:
         feature_frame = self.predictor.prepare_feature_frame(streamer.frame)
         trades: List[ReplayTrade] = []
         active_trade: Optional[ReplayTrade] = None
+        price_history: List[float] = []
 
         applied_entry_threshold = self.entry_threshold
         adaptive_entry_threshold: Optional[float] = None
@@ -155,6 +162,7 @@ class NeuralReplayTrader:
             applied_entry_threshold = min(self.entry_threshold, adaptive_entry_threshold)
 
         for idx, bar in enumerate(streamer.stream(delay_seconds=delay_seconds)):
+            price_history.append(bar.close)
             prediction: Optional[float] = precomputed_predictions[idx]
 
             if active_trade is None:
@@ -171,6 +179,7 @@ class NeuralReplayTrader:
                         quantity=quantity,
                         capital_used=quantity * bar.close,
                         model_prediction=prediction,
+                        peak_price=bar.close,
                     )
                 if on_step is not None:
                     on_step(idx, bar, trades, active_trade, prediction)
@@ -178,7 +187,11 @@ class NeuralReplayTrader:
 
             # Manage an existing position
             active_trade.bars_held += 1
+            active_trade.peak_price = max(active_trade.peak_price or bar.close, bar.close)
             current_profit = (bar.close / active_trade.entry_price) - 1
+            recent_volatility = _recent_volatility(
+                price_history, self.strategy.volatility_lookback
+            )
 
             if self.max_bars_held is not None and active_trade.bars_held >= self.max_bars_held:
                 trades.append(
@@ -194,6 +207,7 @@ class NeuralReplayTrader:
                         capital_used=active_trade.capital_used,
                         profit_usd=current_profit * active_trade.capital_used,
                         model_prediction=prediction,
+                        peak_price=active_trade.peak_price,
                     )
                 )
                 active_trade = None
@@ -217,6 +231,7 @@ class NeuralReplayTrader:
                             capital_used=active_trade.capital_used,
                             profit_usd=current_profit * active_trade.capital_used,
                             model_prediction=prediction,
+                            peak_price=active_trade.peak_price,
                         )
                     )
                     active_trade = None
@@ -224,7 +239,12 @@ class NeuralReplayTrader:
                         on_step(idx, bar, trades, active_trade, prediction)
                     continue
 
-            action = self.strategy.evaluate(active_trade.entry_price, bar.close)
+            action = self.strategy.evaluate(
+                active_trade.entry_price,
+                bar.close,
+                peak_price=active_trade.peak_price,
+                recent_volatility=recent_volatility,
+            )
             if action is Action.TAKE_PROFIT:
                 trades.append(
                     ReplayTrade(
@@ -239,6 +259,7 @@ class NeuralReplayTrader:
                         capital_used=active_trade.capital_used,
                         profit_usd=current_profit * active_trade.capital_used,
                         model_prediction=prediction,
+                        peak_price=active_trade.peak_price,
                     )
                 )
                 active_trade = None
@@ -260,6 +281,7 @@ class NeuralReplayTrader:
                         capital_used=active_trade.capital_used,
                         profit_usd=current_profit * active_trade.capital_used,
                         model_prediction=prediction,
+                        peak_price=active_trade.peak_price,
                     )
                 )
                 active_trade = None
@@ -287,17 +309,58 @@ class NeuralReplayTrader:
                         * active_trade.capital_used
                     ),
                     model_prediction=active_trade.model_prediction,
+                    peak_price=active_trade.peak_price,
                 )
             )
 
         total_return = sum(trade.profit_pct or 0.0 for trade in trades)
+        wins = [trade for trade in trades if trade.profit_pct is not None and trade.profit_pct > 0]
+        losses = [
+            trade for trade in trades if trade.profit_pct is not None and trade.profit_pct <= 0
+        ]
+        total_trades = len(trades)
+        win_rate = len(wins) / total_trades if total_trades else 0.0
+        average_holding = (
+            sum(trade.bars_held for trade in trades) / total_trades if total_trades else 0.0
+        )
+        average_profit = (
+            sum(trade.profit_pct for trade in wins) / len(wins) if wins else 0.0
+        )
+        average_loss = (
+            sum(trade.profit_pct for trade in losses) / len(losses) if losses else 0.0
+        )
         summary = ReplaySummary(
             trades=trades,
             total_return=total_return,
             cumulative_profit_pct=total_return,
             applied_entry_threshold=applied_entry_threshold,
+            total_trades=total_trades,
+            win_rate=win_rate,
+            average_holding_bars=average_holding,
+            average_profit_pct=average_profit,
+            average_loss_pct=average_loss,
         )
         return summary
+
+
+def _recent_volatility(prices: List[float], lookback: int) -> Optional[float]:
+    """Compute the standard deviation of recent percentage changes."""
+
+    if len(prices) < 2:
+        return None
+
+    changes = []
+    for prev, curr in zip(prices[-(lookback + 1) : -1], prices[-lookback:]):
+        if prev == 0:
+            continue
+        changes.append((curr - prev) / prev)
+
+    if not changes:
+        return None
+
+    mean_change = sum(changes) / len(changes)
+    variance = sum((c - mean_change) ** 2 for c in changes) / len(changes)
+    return variance ** 0.5
 
 
 def simulate_date_window(
