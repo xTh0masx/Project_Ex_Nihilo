@@ -239,7 +239,7 @@ def _render_price_chart(frame: pd.DataFrame, *, title: str) -> None:
     fig.add_trace(go.Scatter(x=frame.index, y=frame["close"].rolling(50).mean(), name="MA 50"))
 
     fig.update_layout(height=520, title=title, xaxis_title="Timestamp", yaxis_title="Price (USD)")
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
 
 def _render_volume_chart(frame: pd.DataFrame) -> None:
@@ -248,7 +248,7 @@ def _render_volume_chart(frame: pd.DataFrame) -> None:
     fig = go.Figure()
     fig.add_bar(x=frame.index, y=frame["volume"], name="Volume", marker_color="#2E8BC0")
     fig.update_layout(height=200, margin=dict(t=30), xaxis_title="Timestamp", yaxis_title="Volume")
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
 
 def _render_trade_performance(trades: pd.DataFrame) -> None:
@@ -268,7 +268,7 @@ def _render_trade_performance(trades: pd.DataFrame) -> None:
     col2.metric("Win rate", f"{win_rate:.1f}%")
     col3.metric("Total PnL", f"${total_pnl:,.2f}")
 
-    st.dataframe(trades.tail(200), use_container_width=True)
+    st.dataframe(trades.tail(200), width="stretch")
 
 
 
@@ -348,7 +348,7 @@ def _render_simulation(frame: pd.DataFrame) -> None:
         st.success(
             f"Simulation finished with {len(trades)} trades and total PnL ${trades['pnl'].sum():,.2f}."
         )
-        st.dataframe(trades, use_container_width=True)
+        st.dataframe(trades, width="stretch")
 
 
 
